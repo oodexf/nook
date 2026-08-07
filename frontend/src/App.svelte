@@ -1,17 +1,25 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { fetchReadiness, type HealthStatus } from "./lib/api/health";
+  import { onSessionExpired } from "./lib/api/client";
+  import AuthPage from "./lib/auth/AuthPage.svelte";
+  import { createSessionStore } from "./lib/auth/session-store.svelte";
+  import PrimaryButton from "./lib/components/PrimaryButton.svelte";
+  import AppShell from "./lib/conversations/AppShell.svelte";
 
-  let status = $state<HealthStatus>("checking");
+  const session = createSessionStore();
 
   onMount(() => {
     const controller = new AbortController();
-    void fetchReadiness(controller.signal).then((result) => {
-      status = result;
-    });
-
-    return () => controller.abort();
+    void session.bootstrap(controller.signal);
+    // Centralized session expiry: any 401 from an authenticated API call
+    // transitions back to the login page instead of leaving stale private
+    // data on screen.
+    const unsubscribe = onSessionExpired(() => session.expire());
+    return () => {
+      controller.abort();
+      unsubscribe();
+    };
   });
 </script>
 
@@ -19,34 +27,97 @@
   <title>Minimal AI Chat</title>
 </svelte:head>
 
-<main>
-  <section class="shell" aria-labelledby="app-title">
-    <div class="mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" role="img">
-        <path d="M5 5.75A2.75 2.75 0 0 1 7.75 3h8.5A2.75 2.75 0 0 1 19 5.75v6.5A2.75 2.75 0 0 1 16.25 15H11l-4.7 4.1c-.5.43-1.3.08-1.3-.58V5.75Z" />
-      </svg>
-    </div>
-
-    <p class="eyebrow">Self-hosted · Web-first</p>
-    <h1 id="app-title">Minimal AI Chat</h1>
-    <p class="summary">
-      一个轻量、安静、由你掌控数据的 AI 对话空间。
-    </p>
-
-    <div class="status" aria-live="polite">
-      <span class:ready={status === "ready"} class="status-dot"></span>
-      {#if status === "checking"}
-        正在检查服务…
-      {:else if status === "ready"}
-        服务已就绪
-      {:else}
-        暂时无法连接服务
-      {/if}
-    </div>
-
-    <p class="note">
-      项目骨架已经运行。鉴权与聊天功能将在后续实施阶段接入。
-    </p>
-  </section>
+{#if session.status.kind === "authenticated"}
+  <AppShell
+    csrfToken={session.status.csrfToken}
+    isSigningOut={session.isBusy}
+    onSignOut={() => void session.logout()}
+  />
+{:else}
+<main class="auth-main">
+  {#if session.status.kind === "checking"}
+    <section class="panel panel-narrow" aria-label="会话检查">
+      <AuthPage variant="checking" />
+    </section>
+  {:else if session.status.kind === "unauthenticated"}
+    <section class="panel panel-narrow" aria-label="登录">
+      <AuthPage
+        variant="form"
+        isSubmitting={session.isBusy}
+        errorMessage={session.errorMessage}
+        onLogin={(token, rememberMe) => session.login(token, rememberMe)}
+      />
+    </section>
+  {:else if session.status.kind === "unavailable"}
+    <section class="panel panel-narrow centered" aria-labelledby="unavailable-title">
+      <p class="eyebrow">连接失败</p>
+      <h1 id="unavailable-title">暂时无法连接服务</h1>
+      <p class="summary">{session.status.message}</p>
+      <PrimaryButton
+        disabled={session.isBusy}
+        onclick={() => void session.retryBootstrap()}
+      >
+        重试
+      </PrimaryButton>
+    </section>
+  {/if}
 </main>
+{/if}
 
+<style>
+  .panel {
+    padding: clamp(28px, 6vw, 56px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .panel-narrow {
+    width: min(100%, 480px);
+  }
+
+  .centered {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .centered .summary {
+    margin: var(--space-4) 0 var(--space-6);
+  }
+
+  .eyebrow {
+    margin: 0 0 var(--space-3);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.9rem, 6vw, 2.6rem);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  .summary {
+    max-width: 30rem;
+    margin: var(--space-5) 0 0;
+    color: var(--muted);
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 480px) {
+    .panel {
+      display: flex;
+      min-height: calc(100vh - 24px);
+      flex-direction: column;
+      justify-content: center;
+      border-radius: var(--radius-md);
+    }
+  }
+</style>

@@ -41,6 +41,12 @@ identifiers or query strings.
 
 Normal client validation failures are not `error`.
 
+The HTTP request boundary generates one application-owned ULID per request,
+places it in request extensions, emits it as `X-Request-ID`, and records the
+same value in completion logs and public JSON failures. Completion logging uses
+Axum's matched route template and never reads the raw URI, query, headers, or
+body.
+
 ## Never Log
 
 - `Authorization`, Cookie, Set-Cookie, access tokens, API keys, CSRF tokens;
@@ -53,6 +59,12 @@ Normal client validation failures are not `error`.
 Provider/model IDs and message length/count are allowed. If a URL can contain
 credentials or sensitive query parameters, log only a configured provider name
 or sanitized origin.
+
+The Phase D provider and model-catalog paths emit no URL, key, response-body, or
+transport-error fields. Typed provider errors contain only a stable category,
+and the explicit stale response exposes only its stable safe code/message plus
+the middleware request ID. Fake-provider tests use recognizable body/key
+sentinels and assert they are absent from provider errors and public bodies.
 
 ## Event Ownership
 

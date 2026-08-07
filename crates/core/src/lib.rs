@@ -1,7 +1,10 @@
-//! Domain contracts for Minimal AI Chat.
-//!
-//! The first implementation slice intentionally keeps this crate small. Domain
-//! entities and state machines are added here as vertical features land.
+//! Domain entities and contracts for Minimal AI Chat.
+
+pub mod conversation;
+pub mod generation;
+pub mod model;
+pub mod provider;
+pub mod repository;
 
 /// Human-readable application name shared across backend boundaries.
 pub const APP_NAME: &str = "Minimal AI Chat";

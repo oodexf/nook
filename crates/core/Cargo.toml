@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+futures-core = "0.3"
+
 [lints]
 workspace = true
 

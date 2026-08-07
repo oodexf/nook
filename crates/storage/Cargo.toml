@@ -7,6 +7,12 @@ rust-version.workspace = true
 
 [dependencies]
 chat-core = { path = "../core" }
+rusqlite = { version = "0.37", features = ["backup", "bundled"] }
+tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
 
 [lints]
 workspace = true

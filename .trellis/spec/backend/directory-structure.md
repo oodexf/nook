@@ -26,6 +26,7 @@ crates/
       auth/
       provider/
       config.rs
+      request_context.rs
       state.rs
       static_assets.rs
       main.rs
@@ -40,6 +41,26 @@ vertical slice starts.
 Evidence:
 
 - `design.md` sections 3 and 4 in the active MVP task.
+
+Phase C adds real domain modules `conversation.rs`, `generation.rs`, and
+`repository.rs`; SQLite modules `connection.rs`, `migration.rs`, and
+`conversation_repository.rs`; the embedded migration under
+`crates/storage/migrations/`; and server-owned HTTP boundaries
+`crates/server/src/conversations.rs` and `crates/server/src/request_context.rs`.
+
+Phase D adds core-owned model contracts in `crates/core/src/model.rs`, normalized
+provider URL and wire DTO ownership in `crates/server/src/provider.rs`, cache and
+availability service ownership in `crates/server/src/model_catalog.rs`, and
+public model DTO/handler ownership in `crates/server/src/models.rs`. Provider
+JSON types must not move into core, and public model DTOs must not be reused as
+provider rows.
+
+Phase E adds `crates/core/src/provider.rs`,
+`crates/storage/src/generation_repository.rs`, and server-owned
+`crates/server/src/chat.rs` / `generation_registry.rs`. Core owns normalized
+chat/context/error contracts; storage owns setup/retry/finalization SQL; server
+owns OpenAI wire decoding, public SSE, authenticated handlers, and live
+cancellation tokens.
 
 ## Ownership
 
@@ -106,3 +127,8 @@ Circular crate or module dependencies are forbidden.
 For example, `crates/server/src/config.rs` owns environment decoding and
 validation, while `crates/server/src/static_assets.rs` owns the embedded Vite
 artifact response. Neither concern belongs in `core`.
+
+Authentication is owned by `crates/server/src/auth.rs`: stateless session
+signing, cookie parsing, Origin/CSRF validation, rate limiting, and session HTTP
+handlers remain together until a second authentication adapter requires a
+deeper split.

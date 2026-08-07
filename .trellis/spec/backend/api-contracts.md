@@ -94,6 +94,60 @@ The Phase A implementation is in `crates/server/src/main.rs`. Both health
 responses are JSON, and the embedded SPA fallback is implemented by
 `crates/server/src/static_assets.rs`.
 
+The session contract is implemented in `crates/server/src/auth.rs`. Session
+cookies are named `chat_session`; browser sessions have no `Max-Age`, remembered
+sessions use `Max-Age=2592000`, and both use `HttpOnly`, `SameSite=Strict`, and
+`Path=/`. `Secure` defaults on and may be disabled only through the explicit
+`APP_COOKIE_SECURE=false` development setting. Mutations compare `Origin`
+exactly with normalized `APP_ORIGIN`.
+
+Conversation CRUD is implemented in `crates/server/src/conversations.rs`; shared
+HTTP request context and public error serialization are implemented in
+`crates/server/src/request_context.rs`:
+
+```text
+GET    /api/v1/conversations?cursor=<opaque>&limit=<1..100>
+GET    /api/v1/conversations/{ulid}
+PATCH  /api/v1/conversations/{ulid}
+DELETE /api/v1/conversations/{ulid}
+```
+
+List/open require the existing session middleware. Rename/delete require the
+existing session + exact Origin + session-bound CSRF middleware. Rename bodies
+are capped at 4 KiB, unknown fields are rejected, titles are trimmed and limited
+to 200 non-control characters, and path IDs must be canonical ULID values.
+Conversation errors reuse the middleware-owned request ID in both the
+`X-Request-ID` response header and public `request_id` field; repository causes
+and request bodies are not serialized. Request completion logs contain only the
+request ID, HTTP method, matched route template, status, and duration. Permanent
+delete is idempotent: a valid ULID returns `204` whether it existed or had
+already been removed.
+
+The Phase D model API is implemented in `crates/server/src/models.rs`:
+
+```text
+GET  /api/v1/models
+POST /api/v1/models/refresh
+```
+
+GET requires the session middleware. POST requires the existing exact-Origin,
+session, and session-bound CSRF middleware. Both responses use
+`Cache-Control: no-store`. The normalized success body adds `stale` and nullable
+`refresh_error`; stale metadata repeats the current request ID and a stable safe
+model-provider code/message. Provider keys, raw response bodies, full provider
+URLs, and transport details never enter the public DTO. A configured default
+missing from the fetched catalog returns authenticated blocking
+`model_default_missing` and is never replaced.
+
+Phase E adds authenticated mutation-protected POST routes for new/existing
+messages, generation cancellation, and assistant retry in
+`crates/server/src/chat.rs`. Message JSON rejects unknown fields, uses a bounded
+body, requires a global `client_message_id`, enforces configured character
+limits, and validates exact model availability. SSE emits `meta` first, append-
+only `delta` events, and exactly one `done`, `stopped`, or `error` terminal event;
+responses carry `Cache-Control: no-store`, `X-Accel-Buffering: no`, keepalive
+comments, and the request ID header owned by request middleware.
+
 ## Scenario: Authenticated Streamed Message Creation
 
 ### 1. Scope / Trigger

@@ -22,6 +22,13 @@ export default tseslint.config(
         parser: tseslint.parser
       }
     }
+  },
+  {
+    // Svelte rune modules are plain TS/JS, not markup components.
+    files: ["**/*.svelte.ts", "**/*.svelte.js"],
+    languageOptions: {
+      parser: tseslint.parser
+    }
   }
 );
 

@@ -34,9 +34,19 @@ pub async fn serve(uri: Uri) -> Response {
     match embedded {
         Some((asset, embedded_path)) => {
             let content_type = mime_guess::from_path(embedded_path).first_or_octet_stream();
+            let cache_control = if embedded_path == "index.html" {
+                "no-cache"
+            } else if embedded_path.starts_with("assets/") {
+                "public, max-age=31536000, immutable"
+            } else {
+                "public, max-age=3600"
+            };
             (
                 StatusCode::OK,
-                [(header::CONTENT_TYPE, content_type.as_ref())],
+                [
+                    (header::CONTENT_TYPE, content_type.as_ref()),
+                    (header::CACHE_CONTROL, cache_control),
+                ],
                 Body::from(asset.data),
             )
                 .into_response()

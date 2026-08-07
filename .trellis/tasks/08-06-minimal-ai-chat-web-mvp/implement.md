@@ -48,16 +48,16 @@ database or provider code.
 
 ## 3. Phase B — Authentication Vertical Slice
 
-- [ ] `B-01` Define session claims, expiry, signing, and token-rotation behavior.
-- [ ] `B-02` Implement `POST`, `GET`, and `DELETE /api/v1/session`.
-- [ ] `B-03` Add constant-time token comparison and authentication rate limiting.
-- [ ] `B-04` Add HttpOnly, SameSite, Secure/session/30-day cookie behavior.
-- [ ] `B-05` Add authentication middleware to all non-public API routes.
-- [ ] `B-06` Add session-bound CSRF token and same-origin validation to all
+- [x] `B-01` Define session claims, expiry, signing, and token-rotation behavior.
+- [x] `B-02` Implement `POST`, `GET`, and `DELETE /api/v1/session`.
+- [x] `B-03` Add constant-time token comparison and authentication rate limiting.
+- [x] `B-04` Add HttpOnly, SameSite, Secure/session/30-day cookie behavior.
+- [x] `B-05` Add authentication middleware to all non-public API routes.
+- [x] `B-06` Add session-bound CSRF token and same-origin validation to all
       state-changing routes.
-- [ ] `B-07` Build session bootstrap and dedicated authentication page.
-- [ ] `B-08` Implement unchecked-by-default "Remember me" and sign-out.
-- [ ] `B-09` Add auth integration, cookie, expiry, rotation, CSRF, and rate-limit
+- [x] `B-07` Build session bootstrap and dedicated authentication page.
+- [x] `B-08` Implement unchecked-by-default "Remember me" and sign-out.
+- [x] `B-09` Add auth integration, cookie, expiry, rotation, CSRF, and rate-limit
       tests.
 
 ### Validation
@@ -76,15 +76,15 @@ health endpoint; no persistent data exists yet.
 
 ## 4. Phase C — SQLite and Conversation CRUD
 
-- [ ] `C-01` Add SQLite connection management and required PRAGMAs.
-- [ ] `C-02` Add embedded transactional migration runner.
-- [ ] `C-03` Create conversations, messages, generations, and migrations schema.
-- [ ] `C-04` Implement repositories with explicit SQL and domain mapping.
-- [ ] `C-05` Implement conversation pagination, open, rename, and delete APIs.
-- [ ] `C-06` Add startup recovery from streaming to interrupted.
-- [ ] `C-07` Add client-message idempotency and active-generation constraints.
-- [ ] `C-08` Build sidebar and empty-conversation UI against real APIs.
-- [ ] `C-09` Add repository and CRUD integration tests.
+- [x] `C-01` Add SQLite connection management and required PRAGMAs.
+- [x] `C-02` Add embedded transactional migration runner.
+- [x] `C-03` Create conversations, messages, generations, and migrations schema.
+- [x] `C-04` Implement repositories with explicit SQL and domain mapping.
+- [x] `C-05` Implement conversation pagination, open, rename, and delete APIs.
+- [x] `C-06` Add startup recovery from streaming to interrupted.
+- [x] `C-07` Add client-message idempotency and active-generation constraints.
+- [x] `C-08` Build sidebar and empty-conversation UI against real APIs.
+- [x] `C-09` Add repository and CRUD integration tests.
 
 ### Validation
 
@@ -107,18 +107,23 @@ test data must use forward migrations.
 
 ## 5. Phase D — Model Catalog and Conversation Model
 
-- [ ] `D-01` Define provider model DTOs and normalized catalog types.
-- [ ] `D-02` Normalize `AI_BASE_URL` once for all provider endpoints.
-- [ ] `D-03` Implement authenticated provider `/v1/models` fetch.
-- [ ] `D-04` Add deterministic filtering, deduplication, sorting, and error
+- [x] `D-01` Define provider model DTOs and normalized catalog types.
+- [x] `D-02` Normalize `AI_BASE_URL` once for all provider endpoints.
+- [x] `D-03` Implement authenticated provider `/v1/models` fetch.
+- [x] `D-04` Add deterministic filtering, deduplication, sorting, and error
       mapping.
-- [ ] `D-05` Add in-memory TTL cache, explicit refresh, and stale-cache behavior.
-- [ ] `D-06` Validate `AI_DEFAULT_MODEL` against the catalog.
-- [ ] `D-07` Implement authenticated `/api/v1/models` and refresh endpoints.
-- [ ] `D-08` Build draft-conversation model selector and model error states.
-- [ ] `D-09` Persist one immutable model on conversation creation.
-- [ ] `D-10` Display the locked model on existing conversations.
-- [ ] `D-11` Test missing/duplicate/malformed/empty/stale/removed model cases.
+- [x] `D-05` Add in-memory TTL cache, explicit refresh, and stale-cache behavior.
+- [x] `D-06` Validate `AI_DEFAULT_MODEL` against the catalog.
+- [x] `D-07` Implement authenticated `/api/v1/models` and refresh endpoints.
+- [x] `D-08` Build draft-conversation model selector and model error states.
+- [x] `D-09` Persist one immutable model on conversation creation. **Phase E
+      boundary:** the schema trigger locks model changes after a message, and the
+      first-message transaction now persists the conversation/model together
+      with user message, assistant placeholder, and generation.
+- [x] `D-10` Display the locked model on existing conversations. Historical
+      conversations retain their stored model and visibly indicate when it is
+      absent from the current catalog.
+- [x] `D-11` Test missing/duplicate/malformed/empty/stale/removed model cases.
 
 ### Validation
 
@@ -135,20 +140,20 @@ database assignment occur in the same application flow.
 
 ## 6. Phase E — Streaming Chat Vertical Slice
 
-- [ ] `E-01` Define `ChatProvider` and provider error taxonomy.
-- [ ] `E-02` Implement OpenAI-compatible streaming request and upstream SSE
+- [x] `E-01` Define `ChatProvider` and provider error taxonomy.
+- [x] `E-02` Implement OpenAI-compatible streaming request and upstream SSE
       decoder.
-- [ ] `E-03` Implement bounded conversation context selection.
-- [ ] `E-04` Implement transactional user/assistant/generation creation.
-- [ ] `E-05` Implement public SSE event encoder.
-- [ ] `E-06` Implement generation registry and cancellation tokens.
-- [ ] `E-07` Finalize completed/stopped/error message states with one database
+- [x] `E-03` Implement bounded conversation context selection.
+- [x] `E-04` Implement transactional user/assistant/generation creation.
+- [x] `E-05` Implement public SSE event encoder.
+- [x] `E-06` Implement generation registry and cancellation tokens.
+- [x] `E-07` Finalize completed/stopped/error message states with one database
       write of accumulated content.
-- [ ] `E-08` Build one central frontend SSE decoder from `unknown`.
-- [ ] `E-09` Build composer, message list, streaming buffer, and state machine.
-- [ ] `E-10` Implement AbortController plus explicit cancel request.
-- [ ] `E-11` Implement retry of the latest assistant response.
-- [ ] `E-12` Add fake provider with deterministic success and failure scripts.
+- [x] `E-08` Build one central frontend SSE decoder from `unknown`.
+- [x] `E-09` Build composer, message list, streaming buffer, and state machine.
+- [x] `E-10` Implement AbortController plus explicit cancel request.
+- [x] `E-11` Implement retry of the latest assistant response.
+- [x] `E-12` Add fake provider with deterministic success and failure scripts.
 
 ### Validation
 
@@ -168,15 +173,15 @@ must never require destructive database repair.
 
 ## 7. Phase F — Complete Browser Experience
 
-- [ ] `F-01` Implement responsive app shell, desktop sidebar, and mobile drawer.
-- [ ] `F-02` Implement auto-resizing composer and IME-safe keyboard behavior.
-- [ ] `F-03` Implement auto-follow, user-scroll detection, and return-to-bottom.
-- [ ] `F-04` Implement safe Markdown parsing and sanitization.
-- [ ] `F-05` Add message and code-block copy actions.
-- [ ] `F-06` Add inline error/recovery states and accessible announcements.
-- [ ] `F-07` Add conversation rename and permanent-delete confirmation.
-- [ ] `F-08` Persist only allowed UI preferences and unsent drafts.
-- [ ] `F-09` Add reduced-motion, keyboard, focus, contrast, and touch-target checks.
+- [x] `F-01` Implement responsive app shell, desktop sidebar, and mobile drawer.
+- [x] `F-02` Implement auto-resizing composer and IME-safe keyboard behavior.
+- [x] `F-03` Implement auto-follow, user-scroll detection, and return-to-bottom.
+- [x] `F-04` Implement safe Markdown parsing and sanitization.
+- [x] `F-05` Add message and code-block copy actions.
+- [x] `F-06` Add inline error/recovery states and accessible announcements.
+- [x] `F-07` Add conversation rename and permanent-delete confirmation.
+- [x] `F-08` Persist only allowed UI preferences and unsent drafts.
+- [x] `F-09` Add reduced-motion, keyboard, focus, contrast, and touch-target checks.
 
 ### Validation
 
@@ -200,17 +205,17 @@ boundaries, and sanitizer behavior are not styling concerns and must remain.
 
 ## 8. Phase G — Deployment, Security, and Recovery
 
-- [ ] `G-01` Add security headers and same-origin policy.
-- [ ] `G-02` Add body, message, context, concurrency, and timeout limits.
-- [ ] `G-03` Add structured request/provider/generation logs with redaction tests.
-- [ ] `G-04` Add readiness database check and application healthcheck subcommand.
-- [ ] `G-05` Add Compose example with localhost binding, `/data`, read-only root,
+- [x] `G-01` Add security headers and same-origin policy.
+- [x] `G-02` Add body, message, context, concurrency, and timeout limits.
+- [x] `G-03` Add structured request/provider/generation logs with redaction tests.
+- [x] `G-04` Add readiness database check and application healthcheck subcommand.
+- [x] `G-05` Add Compose example with localhost binding, `/data`, read-only root,
       tmpfs, and `no-new-privileges`.
-- [ ] `G-06` Add reverse-proxy examples that disable SSE buffering.
-- [ ] `G-07` Add SQLite backup command using the backup API.
-- [ ] `G-08` Document and execute restore, upgrade, and rollback drills.
-- [ ] `G-09` Verify SIGTERM drain and bounded shutdown.
-- [ ] `G-10` Build and smoke-test AMD64 and ARM64 release images.
+- [x] `G-06` Add reverse-proxy examples that disable SSE buffering.
+- [x] `G-07` Add SQLite backup command using the backup API.
+- [x] `G-08` Document and execute restore, upgrade, and rollback drills.
+- [x] `G-09` Verify SIGTERM drain and bounded shutdown.
+- [x] `G-10` Build and smoke-test AMD64 and ARM64 release images.
 
 ### Validation
 
@@ -230,16 +235,20 @@ rollback.
 
 ## 9. Phase H — Release Gate
 
-- [ ] `H-01` Run full Rust and frontend quality commands.
-- [ ] `H-02` Run API, repository, auth, provider, and Docker integration suites.
+- [x] `H-01` Run full Rust and frontend quality commands.
+- [x] `H-02` Run API, repository, auth, provider, and Docker integration suites.
 - [ ] `H-03` Run browser E2E for auth, models, chat, cancel, retry, refresh,
       restart, rename, and delete.
-- [ ] `H-04` Run Markdown XSS and authentication security suites.
+- [x] `H-04` Run Markdown XSS and authentication security suites.
 - [ ] `H-05` Manually verify Safari and iOS Safari.
-- [ ] `H-06` Record idle RSS, frontend asset size, and bounded load results.
-- [ ] `H-07` Reconcile README, environment variables, API docs, and actual
+- [x] `H-06` Record idle RSS, frontend asset size, and bounded load results.
+      Local release smoke measured approximately 9.7 MiB idle RSS; built assets
+      total approximately 194 KiB uncompressed / 63 KiB gzip, and component
+      coverage includes a 100 KiB streamed response without per-token Markdown
+      parsing.
+- [x] `H-07` Reconcile README, environment variables, API docs, and actual
       behavior.
-- [ ] `H-08` Run Trellis check and resolve every verified blocking finding.
+- [x] `H-08` Run Trellis check and resolve every verified blocking finding.
 - [ ] `H-09` Complete Trellis spec update, commit, finish, and archive workflow.
 
 ## 10. Required Test Fixtures

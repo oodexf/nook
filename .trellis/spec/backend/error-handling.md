@@ -53,9 +53,24 @@ Every JSON error has:
 - `code` is stable and machine-readable.
 - `message` is safe for direct display.
 - `request_id` connects the user-visible error to logs.
+- One HTTP boundary generates the ID once per request; the response
+  `X-Request-ID` header, JSON error field, and request completion log reuse it.
+- Health bodies remain minimal; their request ID exists only in the response
+  header and contains no request-derived data.
 - Internal causes, paths, SQL, cookies, tokens, and upstream bodies are omitted.
 
 SSE terminal errors use the same public code/message semantics.
+
+The model-catalog mapping is executable in `crates/core/src/model.rs` and
+`crates/server/src/models.rs`: upstream 401/403 map to
+`model_provider_unauthorized`/502, 429 to `model_provider_rate_limited`/429,
+timeout to `model_provider_timeout`/504, transport and 5xx to
+`model_provider_unavailable`/503, and malformed or empty usable catalogs to a
+stable 422 configuration/provider response. `model_default_missing` is also a
+blocking authenticated 422 response. When a stale catalog exists, refresh
+failures remain HTTP 200 catalog responses with explicit `stale=true` and safe
+`refresh_error`; this is data plus degradation metadata, not an error-shaped
+success body.
 
 ## HTTP Mapping
 
