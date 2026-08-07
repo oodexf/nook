@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Defines cross-layer contract ownership and validation for auth, models, chat streams, persistence, and UI."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Entry point for backend conventions; bootstrap task must mark its linked guides ready before implementation."}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Entry point for frontend conventions; bootstrap task must mark its linked guides ready before implementation."}
+{"file": ".trellis/tasks/08-06-minimal-ai-chat-web-mvp/research/technology-baseline.md", "reason": "Records verified framework and deployment capabilities behind the design."}

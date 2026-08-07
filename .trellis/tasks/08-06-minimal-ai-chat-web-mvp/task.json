@@ -1,0 +1,28 @@
+{
+  "id": "minimal-ai-chat-web-mvp",
+  "name": "minimal-ai-chat-web-mvp",
+  "title": "Minimal AI Chat Web MVP",
+  "description": "Plan and deliver a lightweight, self-hosted web AI chat with Rust, Svelte, SQLite, Docker, shared-token authentication, OpenAI-compatible model discovery, and one model per conversation.",
+  "status": "planning",
+  "dev_type": "feature",
+  "scope": "fullstack",
+  "package": null,
+  "priority": "P2",
+  "creator": "logan",
+  "assignee": "logan",
+  "createdAt": "2026-08-06",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "workflow_role": "integrated-mvp"
+  }
+}

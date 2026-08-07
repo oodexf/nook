@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review serialized contracts and complete data flow across browser, API, provider, and database."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality gate; must be populated by bootstrap task before implementation starts."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality and accessibility gate; must be populated by bootstrap task before implementation starts."}
+{"file": ".trellis/tasks/08-06-minimal-ai-chat-web-mvp/research/technology-baseline.md", "reason": "Check implementation assumptions against the researched baseline."}
