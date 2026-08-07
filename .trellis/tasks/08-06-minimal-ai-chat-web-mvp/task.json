@@ -3,7 +3,7 @@
   "name": "minimal-ai-chat-web-mvp",
   "title": "Minimal AI Chat Web MVP",
   "description": "Plan and deliver a lightweight, self-hosted web AI chat with Rust, Svelte, SQLite, Docker, shared-token authentication, OpenAI-compatible model discovery, and one model per conversation.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "feature",
   "scope": "fullstack",
   "package": null,

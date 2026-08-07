@@ -46,8 +46,8 @@ Feature-specific components stay with the owning feature until reused.
 ## Naming
 
 - Svelte component files use `PascalCase.svelte`.
-- TypeScript modules and folders use `kebab-case` or `camelCase` consistently;
-  Phase A selects one and records the choice here.
+- TypeScript modules and folders use `kebab-case`; Svelte component files remain
+  `PascalCase.svelte`.
 - Stores use conceptual names such as `sessionStore`, not generic `appStore`.
 - Event handlers describe intent: `handleSend`, `handleCancel`.
 - Boolean values read as predicates: `isStreaming`, `hasMessages`.
@@ -75,8 +75,7 @@ common/
 without a named domain. Shared code must have a concrete owner such as
 `markdown`, `api`, or `generation`.
 
-## Spec Update Requirement
-
-After the auth vertical slice, replace planned paths with real files and record
-the chosen Svelte state syntax and test tooling.
-
+The Phase A shell uses Svelte 5 runes in `frontend/src/App.svelte`. HTTP access
+starts in `frontend/src/lib/api/health.ts`, with colocated Vitest coverage in
+`health.test.ts`. The auth vertical slice must follow the same feature-owned
+layout.

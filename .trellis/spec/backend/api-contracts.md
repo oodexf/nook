@@ -90,6 +90,10 @@ slice. Add a round-trip contract test for every event variant.
 - SSE disables proxy buffering and response caching.
 - Health endpoints expose no configuration or dependency secrets.
 
+The Phase A implementation is in `crates/server/src/main.rs`. Both health
+responses are JSON, and the embedded SPA fallback is implemented by
+`crates/server/src/static_assets.rs`.
+
 ## Scenario: Authenticated Streamed Message Creation
 
 ### 1. Scope / Trigger

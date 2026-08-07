@@ -11,7 +11,10 @@ cargo test --workspace
 cargo build --workspace --release
 ```
 
-Phase A may name wrapper commands, but they must execute these capabilities.
+`make check-backend` runs the formatting, Clippy, and test gate.
+Representative Phase A tests live beside their owners in
+`crates/server/src/config.rs`, `crates/server/src/main.rs`,
+`crates/core/src/lib.rs`, and `crates/storage/src/lib.rs`.
 
 ## Required Patterns
 
@@ -65,8 +68,5 @@ deterministic fake provider described in the approved implementation plan.
 - Does a new dependency solve a documented requirement with minimal features?
 - Are migrations forward-only and recoverable?
 
-## Greenfield Follow-up
-
-After the first backend vertical slice, update this guide with real test command
-names and representative source/test paths.
-
+Docker verification uses `docker build .` followed by a container healthcheck
+and an HTTP readiness probe. The runtime must report user `10001:10001`.

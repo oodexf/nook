@@ -11,7 +11,18 @@ Phase A selects the exact tools and scripts. The gate must include:
 - production build;
 - browser E2E for critical flows.
 
-The README and this spec must be updated with real command names once created.
+The concrete Phase A commands are:
+
+```text
+npm --prefix frontend run check
+npm --prefix frontend run lint
+npm --prefix frontend run test
+npm --prefix frontend run build
+```
+
+Vitest is the unit-test runner, `svelte-check` is the Svelte/TypeScript gate,
+and ESLint runs with warnings treated as failures. `make check-frontend`
+executes the complete frontend gate.
 
 ## Test Responsibilities
 
@@ -108,4 +119,3 @@ change.
 - Does sanitized content remain the only HTML insertion path?
 - Are server state and transient UI state clearly separated?
 - Are auth expiry and CSRF failures recoverable?
-

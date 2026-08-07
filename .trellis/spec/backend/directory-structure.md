@@ -1,6 +1,6 @@
 # Backend Directory Structure
 
-## Planned Layout
+## Current Layout
 
 The approved design owns this initial layout:
 
@@ -31,9 +31,11 @@ crates/
       main.rs
 ```
 
-If Phase A proves a single crate is materially simpler, keep the same module
-boundaries under `src/`. Do not collapse responsibilities merely to reduce the
-number of directories.
+The workspace manifests are `Cargo.toml`, `crates/core/Cargo.toml`,
+`crates/storage/Cargo.toml`, and `crates/server/Cargo.toml`. Phase A establishes
+the three crates and the real server modules `config.rs` and
+`static_assets.rs`; later feature directories are added only when their
+vertical slice starts.
 
 Evidence:
 
@@ -101,8 +103,6 @@ core ────► nothing infrastructure-specific
 
 Circular crate or module dependencies are forbidden.
 
-## Spec Update Requirement
-
-After Phase A, update this guide with actual manifest paths and at least one
-real module example before adding the second backend feature.
-
+For example, `crates/server/src/config.rs` owns environment decoding and
+validation, while `crates/server/src/static_assets.rs` owns the embedded Vite
+artifact response. Neither concern belongs in `core`.

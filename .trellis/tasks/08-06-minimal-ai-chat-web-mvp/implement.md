@@ -16,17 +16,17 @@ layers before proving a browser-to-database path.
 
 ## 2. Phase A — Project Foundation
 
-- [ ] `A-01` Complete the Trellis bootstrap-guidelines task for Rust/Axum,
+- [x] `A-01` Complete the Trellis bootstrap-guidelines task for Rust/Axum,
       Svelte/TypeScript, SQLite, testing, logging, and accessibility conventions.
-- [ ] `A-02` Initialize Cargo workspace or approved module-equivalent structure.
-- [ ] `A-03` Initialize Svelte + TypeScript + Vite.
-- [ ] `A-04` Add formatting, lint, type-check, unit-test, and release-build
+- [x] `A-02` Initialize Cargo workspace or approved module-equivalent structure.
+- [x] `A-03` Initialize Svelte + TypeScript + Vite.
+- [x] `A-04` Add formatting, lint, type-check, unit-test, and release-build
       commands.
-- [ ] `A-05` Implement typed configuration loading and secret-safe validation.
-- [ ] `A-06` Implement Axum liveness endpoint and graceful shutdown.
-- [ ] `A-07` Build frontend assets and embed them into the Rust binary.
-- [ ] `A-08` Add a first multi-stage Dockerfile and non-root runtime.
-- [ ] `A-09` Add CI for formatting, lint, type-check, tests, and release build.
+- [x] `A-05` Implement typed configuration loading and secret-safe validation.
+- [x] `A-06` Implement Axum liveness endpoint and graceful shutdown.
+- [x] `A-07` Build frontend assets and embed them into the Rust binary.
+- [x] `A-08` Add a first multi-stage Dockerfile and non-root runtime.
+- [x] `A-09` Add CI for formatting, lint, type-check, tests, and release build.
 
 ### Validation
 
