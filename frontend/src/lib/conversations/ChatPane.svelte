@@ -6,6 +6,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import MenuIcon from "../components/MenuIcon.svelte";
   import PencilIcon from "../components/PencilIcon.svelte";
+  import SidebarToggleIcon from "../components/SidebarToggleIcon.svelte";
   import TrashIcon from "../components/TrashIcon.svelte";
   import StreamingTurn from "../generation/StreamingTurn.svelte";
   import type { GenerationStore } from "../generation/generation-store.svelte";
@@ -29,6 +30,15 @@
     onOpenDrawer: () => void;
     /** Exposed so the shell can restore focus after the drawer closes. */
     menuButton?: HTMLButtonElement | null;
+    /**
+     * Desktop sidebar collapse (Phase I-03): when the shell column is
+     * collapsed, an always-reachable restore control appears in the
+     * header. The mobile drawer is unaffected.
+     */
+    showSidebarRestore?: boolean;
+    onRestoreSidebar?: (() => void) | null;
+    /** Exposed so the shell can move focus here when collapsing. */
+    restoreButton?: HTMLButtonElement | null;
   };
 
   let {
@@ -37,7 +47,10 @@
     generation,
     csrfToken,
     onOpenDrawer,
-    menuButton = $bindable(null)
+    menuButton = $bindable(null),
+    showSidebarRestore = false,
+    onRestoreSidebar = null,
+    restoreButton = $bindable(null)
   }: Props = $props();
 
   const MAX_TITLE_LENGTH = 200;
@@ -149,6 +162,22 @@
   // the draft view before `meta`, or the conversation whose ID matches.
   // Navigating elsewhere never receives another conversation's stream.
   const streamVisible = $derived(generation.isActiveFor(store.selectedId));
+
+  // Once a settled stream's assistant message has arrived in the
+  // authoritative list via reconciliation, release the overlay so the
+  // persisted message (with its retry affordance) takes over. Pre-stream
+  // failures have no server message (`assistantMessageId === null`), so
+  // their overlay — and the composer restore in `handleSend` — is
+  // untouched; a failed reconciliation simply keeps the overlay until the
+  // next successful open/reload.
+  $effect(() => {
+    const assistantId = generation.assistantMessageId;
+    if (assistantId === null || generation.terminal === null) return;
+    const arrived =
+      store.current?.messages.some((message) => message.id === assistantId) ??
+      false;
+    if (arrived) generation.clear();
+  });
 
   const showJumpToBottom = $derived(
     !followOutput && (store.current !== null || streamVisible)
@@ -305,6 +334,18 @@
 
 <section class="pane" aria-label="对话内容">
   <header class="pane-header">
+    {#if showSidebarRestore && onRestoreSidebar !== null}
+      <button
+        type="button"
+        class="icon-button restore-sidebar-button"
+        aria-label="展开侧边栏"
+        aria-expanded="false"
+        bind:this={restoreButton}
+        onclick={onRestoreSidebar}
+      >
+        <SidebarToggleIcon size={20} direction="expand" />
+      </button>
+    {/if}
     <button
       type="button"
       class="icon-button menu-button"
@@ -524,8 +565,16 @@
     background: color-mix(in srgb, var(--danger) 8%, var(--surface));
   }
 
-  .menu-button {
+  .menu-button,
+  .restore-sidebar-button {
     display: none;
+  }
+
+  /* The restore control is a desktop affordance; mobile keeps the drawer. */
+  @media (min-width: 761px) {
+    .restore-sidebar-button {
+      display: inline-flex;
+    }
   }
 
   .title-group {
@@ -568,7 +617,7 @@
     margin: 0;
     padding: var(--space-2) var(--space-4);
     border-bottom: 1px solid var(--border);
-    color: #92400e;
+    color: var(--warning-text);
     background: color-mix(in srgb, #f59e0b 10%, var(--surface));
     font-size: 0.82rem;
     line-height: 1.5;
@@ -691,9 +740,9 @@
   }
 
   .messages-scroll {
-    width: min(100%, 760px);
+    width: min(100%, 900px);
     margin: 0 auto;
-    padding: var(--space-5);
+    padding: var(--space-5) clamp(var(--space-4), 3vw, var(--space-6));
   }
 
   .pane-note {

@@ -236,9 +236,12 @@ describe("ChatPane streaming", () => {
     expect(pane.container.querySelector("button.stop")).not.toBeNull();
 
     stream.push(metaBlock("c-new") + deltaBlock("流式回答"));
+    // Live Markdown (Phase I-05): the stream renders through the
+    // sanitized Markdown lane before the terminal event.
     await vi.waitFor(() => {
       expect(
-        pane.container.querySelector(".turn .assistant .content")?.textContent
+        pane.container.querySelector(".turn [data-role='assistant'] .markdown")
+          ?.textContent
       ).toContain("流式回答");
     });
 
@@ -247,6 +250,48 @@ describe("ChatPane streaming", () => {
     await vi.waitFor(() => {
       expect(pane.generation.phase).toBe("completed");
     });
+    pane.destroy();
+  });
+
+  it("releases the settled overlay once persisted, exposing regenerate", async () => {
+    // The reload returns the server-authoritative copies of the turn (the
+    // router is static, so `a-1` is present from the first open).
+    const stream = installRouter({
+      streamText: () => "",
+      detailMessages: [
+        messageRecord("u-1", "c-new", { role: "user", content: "第一个问题" }),
+        messageRecord("a-1", "c-new", { content: "流式回答" })
+      ]
+    });
+    const pane = mountPane();
+    await pane.modelStore.load();
+    flushSync();
+
+    typeComposer(pane.container, "第一个问题");
+    pressEnter(pane.container);
+    await vi.waitFor(() => expect(pane.generation.phase).toBe("connecting"));
+
+    stream.push(metaBlock("c-new") + deltaBlock("流式回答"));
+    // While streaming, the overlay owns the turn and the persisted copy is
+    // excluded, so no regenerate control is visible yet.
+    await vi.waitFor(() => {
+      expect(pane.container.querySelector(".turn")).not.toBeNull();
+    });
+    expect(pane.container.querySelector("button.retry")).toBeNull();
+
+    stream.push(DONE_BLOCK);
+    stream.close();
+
+    // After the terminal event and reconciliation, the overlay yields to
+    // the persisted list, which offers regenerate on the latest assistant
+    // message (08-08 fix: previously the overlay stayed mounted and the
+    // button never appeared).
+    await vi.waitFor(() => {
+      expect(pane.container.querySelector(".turn")).toBeNull();
+    });
+    const retry =
+      pane.container.querySelector<HTMLButtonElement>("button.retry");
+    expect(retry?.getAttribute("aria-label")).toBe("重新生成助手消息");
     pane.destroy();
   });
 
@@ -377,8 +422,11 @@ describe("ChatPane streaming", () => {
     await pane.store.open("c-1");
     flushSync();
 
-    const retryButton = pane.container.querySelector<HTMLButtonElement>("button.retry");
-    expect(retryButton?.textContent?.trim()).toBe("重试");
+    const retryButton =
+      pane.container.querySelector<HTMLButtonElement>("button.retry");
+    expect(retryButton?.getAttribute("aria-label")).toBe("重试助手消息");
+    expect(retryButton?.title).toBe("重试");
+    expect(retryButton?.querySelector("svg[aria-hidden='true']")).not.toBeNull();
     retryButton?.click();
 
     await vi.waitFor(() => {
@@ -391,6 +439,135 @@ describe("ChatPane streaming", () => {
     stream.push(metaBlock("c-1") + deltaBlock("新的回答") + DONE_BLOCK);
     stream.close();
     await vi.waitFor(() => expect(pane.generation.phase).toBe("completed"));
+    pane.destroy();
+  });
+
+  it("renders streamed Markdown in role lanes, throttled between deltas", async () => {
+    const stream = installRouter({ streamText: () => "" });
+    const pane = mountPane();
+    await pane.modelStore.load();
+    flushSync();
+
+    typeComposer(pane.container, "问题");
+    pressEnter(pane.container);
+    stream.push(metaBlock("c-new") + deltaBlock("**第一段**"));
+
+    // The optimistic user message sits in the right lane hook.
+    await vi.waitFor(() => {
+      expect(
+        pane.container.querySelector(".turn [data-role='user']")?.textContent
+      ).toContain("问题");
+    });
+    // The first streamed Markdown render is immediate (Phase I-05).
+    await vi.waitFor(() => {
+      expect(
+        pane.container.querySelector(
+          ".turn [data-role='assistant'] .markdown strong"
+        )?.textContent
+      ).toBe("第一段");
+    });
+
+    // A delta inside the throttle window updates the buffer but is not
+    // parsed into Markdown per transport delta.
+    stream.push(deltaBlock(" 第二段"));
+    await vi.waitFor(() => {
+      expect(pane.generation.streamingText).toContain("第二段");
+    });
+    expect(
+      pane.container.querySelector(".turn [data-role='assistant'] .markdown")
+        ?.textContent
+    ).not.toContain("第二段");
+
+    // The trailing throttled render picks up the latest buffer.
+    await vi.waitFor(
+      () => {
+        expect(
+          pane.container.querySelector(
+            ".turn [data-role='assistant'] .markdown"
+          )?.textContent
+        ).toContain("第二段");
+      },
+      { timeout: 2000 }
+    );
+
+    // The terminal event forces an immediate final render.
+    stream.push(deltaBlock(" 第三段") + DONE_BLOCK);
+    stream.close();
+    await vi.waitFor(() => expect(pane.generation.phase).toBe("completed"));
+    flushSync();
+    expect(
+      pane.container.querySelector(".turn [data-role='assistant'] .markdown")
+        ?.textContent
+    ).toContain("第三段");
+    pane.destroy();
+  });
+
+  it("keeps streamed Markdown sanitized before the terminal event", async () => {
+    const stream = installRouter({ streamText: () => "" });
+    const pane = mountPane();
+    await pane.modelStore.load();
+    flushSync();
+
+    typeComposer(pane.container, "问题");
+    pressEnter(pane.container);
+    stream.push(
+      metaBlock("c-new") +
+        deltaBlock(
+          '<script>alert(1)</script><img src=x onerror="alert(1)">[点击](javascript:alert(1))'
+        )
+    );
+
+    const markdown = await vi.waitFor(() => {
+      const found = pane.container.querySelector<HTMLElement>(
+        ".turn [data-role='assistant'] .markdown"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(markdown.querySelector("script")).toBeNull();
+    expect(markdown.querySelector("img")).toBeNull();
+    const href = markdown.querySelector("a")?.getAttribute("href") ?? "";
+    expect(href).not.toContain("javascript:");
+    expect(pane.container.querySelector("script")).toBeNull();
+    stream.close();
+    pane.destroy();
+  });
+
+  it("renders an incomplete streamed code fence defensively", async () => {
+    const stream = installRouter({ streamText: () => "" });
+    const pane = mountPane();
+    await pane.modelStore.load();
+    flushSync();
+
+    typeComposer(pane.container, "问题");
+    pressEnter(pane.container);
+    // The fence is never closed before the stream pauses.
+    stream.push(metaBlock("c-new") + deltaBlock("```js\nconst a = 1"));
+
+    await vi.waitFor(() => {
+      expect(
+        pane.container.querySelector(
+          ".turn [data-role='assistant'] .markdown pre code"
+        )?.textContent
+      ).toContain("const a = 1");
+    });
+    // Non-terminal snapshots render the sanitized code block without
+    // exposing an interactive copy control on transient content.
+    expect(
+      pane.container.querySelector(".turn .markdown .copy-button")
+    ).toBeNull();
+
+    // The terminal render restores the copy control with its accessible
+    // name on the final code block.
+    stream.push(DONE_BLOCK);
+    await vi.waitFor(() => {
+      expect(
+        pane.container
+          .querySelector(".turn .markdown .copy-button")
+          ?.getAttribute("aria-label")
+      ).toBe("复制代码");
+    });
+    stream.close();
     pane.destroy();
   });
 });
