@@ -41,6 +41,25 @@ results, and server reconciliation.
 Owns one active stream, transient assistant buffer, cancellation, and terminal
 transition. It is keyed by conversation and stream identity.
 
+Settled-overlay release contract (08-08): the streaming overlay
+(`StreamingTurn`) owns the in-flight turn, but once the terminal transition
+has fired AND the settled assistant message is present in the authoritative
+list (reconciled via `onReconcile`), the pane must release the stream
+(`generation.clear()`) so the persisted message — with its status notes and
+the regenerate/retry affordance — takes over. Gate the release on the message
+actually arriving, not on the terminal event alone:
+
+- mid-stream stops/failures are persisted server-side, so they release too;
+- pre-stream failures (`assistantMessageId === null`) have no server message:
+  the overlay (and the composer-restore path in `ChatPane.handleSend`) must
+  stay;
+- a failed/silent reconciliation keeps the overlay until the next successful
+  open/reload.
+
+Releasing on the terminal event without checking message arrival can drop the
+only visible copy of the reply when reconciliation silently keeps stale detail
+(`reloadCurrent` swallows fetch errors).
+
 ### Component-local
 
 Owns drawer visibility, dialog visibility, focus, hover, and input field state

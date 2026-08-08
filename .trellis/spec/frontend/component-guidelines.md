@@ -61,6 +61,19 @@ conversations show a non-editable model label.
   approved decision.
 - Use inline SVG for the small icon set; icon-only buttons require accessible
   names.
+- The palette is theme-aware (08-08): `App` owns the theme store
+  (`lib/theme/theme-store.svelte.ts`), which persists the preference
+  (system/light/dark) in localStorage under `chat.theme-preference` and
+  applies it as `data-theme` on the document root. All colors must come from
+  the CSS custom properties in `global.css` (add a token to both palettes when
+  a new semantic color is needed); never hard-code hex colors in component
+  styles.
+- Copy feedback contract (08-08): all copy actions share `createCopyControl`.
+  Success swaps the glyph to a green check (`data-state="copied"`, ~1s),
+  failure uses the danger state; the swap is CSS-driven off `data-state`, the
+  factory stays markup-only. Hover-revealed controls (e.g. the code-block copy
+  button) must also appear on `:focus-within` so keyboard users can reach them
+  without reserving layout space.
 
 ## Accessibility
 
