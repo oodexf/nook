@@ -214,6 +214,26 @@ describe("AppShell", () => {
     }) as Mounted;
   }
 
+  /**
+   * The rename editor opens through the row action menu (08-08 sidebar
+   * redesign): click the row's "···" trigger, then pick 重命名.
+   */
+  async function openSidebarRenameEditor(id: string = ID_A) {
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-row-menu-trigger="${id}"]`
+      )
+      ?.click();
+    const menu = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLElement>(
+        ".sidebar-static [role='menu']"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    byText(menu, ".menu-item", "重命名")?.click();
+  }
+
   it("shows a loading state, then renders the conversation list", async () => {
     installRouter({ list: () => page([summary(ID_A)], null) });
     mountShell();
@@ -750,7 +770,7 @@ describe("AppShell", () => {
     });
 
     // The active card chrome lives on the row container; the title
-    // button and the rename trigger are transparent siblings inside it,
+    // button and the row actions are transparent siblings inside it,
     // never nested interactive elements.
     const row = container.querySelector<HTMLElement>(
       ".sidebar-static .item-row.item-row-active"
@@ -759,11 +779,18 @@ describe("AppShell", () => {
     const item = row?.querySelector<HTMLButtonElement>(":scope > button.item");
     expect(item?.getAttribute("aria-current")).toBe("true");
     expect(item?.classList.contains("item-active")).toBe(false);
-    const trigger = row?.querySelector<HTMLButtonElement>(
-      ":scope > button.rename-trigger"
+    // Pin placeholder toggle and the menu trigger (which owns rename via
+    // its menu) are the row's independent action controls.
+    const pinTrigger = row?.querySelector<HTMLButtonElement>(
+      `:scope > button[aria-label='置顶 对话 ${ID_A}']`
     );
-    expect(trigger?.getAttribute("aria-label")).toBe(`重命名 对话 ${ID_A}`);
-    expect(trigger?.querySelector("svg")).not.toBeNull();
+    expect(pinTrigger?.getAttribute("aria-pressed")).toBe("false");
+    expect(pinTrigger?.querySelector("svg")).not.toBeNull();
+    const menuTrigger = row?.querySelector<HTMLButtonElement>(
+      `:scope > button[data-row-menu-trigger='${ID_A}']`
+    );
+    expect(menuTrigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(menuTrigger?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("renames from the sidebar and reconciles list and open header", async () => {
@@ -786,10 +813,14 @@ describe("AppShell", () => {
     });
 
     const trigger = container.querySelector<HTMLButtonElement>(
-      `.sidebar-static [data-rename-trigger="${ID_A}"]`
+      `.sidebar-static [data-row-menu-trigger="${ID_A}"]`
     );
-    expect(trigger?.getAttribute("aria-label")).toBe(`重命名 对话 ${ID_A}`);
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
     trigger?.click();
+    await vi.waitFor(() => {
+      expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    });
+    byText(container, ".menu-item", "重命名")?.click();
 
     const input = await vi.waitFor(() => {
       const found = container.querySelector<HTMLInputElement>(
@@ -823,7 +854,7 @@ describe("AppShell", () => {
     ).toBeNull();
     await vi.waitFor(() => {
       expect(document.activeElement).toBe(
-        container.querySelector(`.sidebar-static [data-rename-trigger="${ID_A}"]`)
+        container.querySelector(`.sidebar-static [data-row-menu-trigger="${ID_A}"]`)
       );
     });
   });
@@ -846,11 +877,7 @@ describe("AppShell", () => {
       expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
     });
 
-    container
-      .querySelector<HTMLButtonElement>(
-        `.sidebar-static [data-rename-trigger="${ID_A}"]`
-      )
-      ?.click();
+    await openSidebarRenameEditor();
     const input = await vi.waitFor(() => {
       const found = container.querySelector<HTMLInputElement>(
         ".sidebar-static #sidebar-rename-input"
@@ -908,11 +935,7 @@ describe("AppShell", () => {
       expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
     });
 
-    container
-      .querySelector<HTMLButtonElement>(
-        `.sidebar-static [data-rename-trigger="${ID_A}"]`
-      )
-      ?.click();
+    await openSidebarRenameEditor();
     const input = await vi.waitFor(() => {
       const found = container.querySelector<HTMLInputElement>(
         ".sidebar-static #sidebar-rename-input"
@@ -936,7 +959,7 @@ describe("AppShell", () => {
     // Focus returns to the item's rename trigger.
     await vi.waitFor(() => {
       expect(document.activeElement).toBe(
-        container.querySelector(`.sidebar-static [data-rename-trigger="${ID_A}"]`)
+        container.querySelector(`.sidebar-static [data-row-menu-trigger="${ID_A}"]`)
       );
     });
   });
@@ -957,11 +980,7 @@ describe("AppShell", () => {
     });
 
     // Unchanged blur: closes without a request.
-    container
-      .querySelector<HTMLButtonElement>(
-        `.sidebar-static [data-rename-trigger="${ID_A}"]`
-      )
-      ?.click();
+    await openSidebarRenameEditor();
     let input = await vi.waitFor(() => {
       const found = container.querySelector<HTMLInputElement>(
         ".sidebar-static #sidebar-rename-input"
@@ -978,11 +997,7 @@ describe("AppShell", () => {
     expect(requests.some((entry) => entry.init?.method === "PATCH")).toBe(false);
 
     // Changed blur: commits through the same server-authoritative path.
-    container
-      .querySelector<HTMLButtonElement>(
-        `.sidebar-static [data-rename-trigger="${ID_A}"]`
-      )
-      ?.click();
+    await openSidebarRenameEditor();
     input = await vi.waitFor(() => {
       const found = container.querySelector<HTMLInputElement>(
         ".sidebar-static #sidebar-rename-input"
@@ -994,10 +1009,11 @@ describe("AppShell", () => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     // The user moved focus elsewhere (tab/click away) before the blur.
     const elsewhere = container.querySelector<HTMLButtonElement>(
-      ".sidebar-static .new-button"
+      ".sidebar-static .nav-entry"
     );
     expect(elsewhere).not.toBeNull();
     elsewhere?.focus();
+    expect(document.activeElement).toBe(elsewhere);
     input.dispatchEvent(new FocusEvent("blur"));
 
     await vi.waitFor(() => {
@@ -1009,7 +1025,7 @@ describe("AppShell", () => {
     // where the user put it.
     expect(document.activeElement).toBe(elsewhere);
     expect(document.activeElement).not.toBe(
-      container.querySelector(`.sidebar-static [data-rename-trigger="${ID_A}"]`)
+      container.querySelector(`.sidebar-static [data-row-menu-trigger="${ID_A}"]`)
     );
   });
 
@@ -1023,11 +1039,7 @@ describe("AppShell", () => {
       expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
     });
 
-    container
-      .querySelector<HTMLButtonElement>(
-        `.sidebar-static [data-rename-trigger="${ID_A}"]`
-      )
-      ?.click();
+    await openSidebarRenameEditor();
     const input = await vi.waitFor(() => {
       const found = container.querySelector<HTMLInputElement>(
         ".sidebar-static #sidebar-rename-input"
@@ -1184,6 +1196,230 @@ describe("AppShell", () => {
 
     // Tidy up the applied attribute for later tests in this file.
     delete document.documentElement.dataset.theme;
+  });
+
+  it("renders the sidebar nav entries with search and projects as placeholders", async () => {
+    installRouter({ list: () => page([], null) });
+    mountShell();
+
+    const search = container.querySelector<HTMLButtonElement>(
+      ".sidebar-static button[aria-label='搜索(即将上线)']"
+    );
+    expect(search).not.toBeNull();
+    expect(search?.disabled).toBe(true);
+
+    const newChat = byText(container, ".nav-entry", "新建对话");
+    expect(newChat).not.toBeNull();
+    expect(newChat?.querySelector("svg")).not.toBeNull();
+
+    const projects = byText(container, ".nav-entry", "项目") as
+      | HTMLButtonElement
+      | undefined;
+    expect(projects).not.toBeNull();
+    expect(projects?.disabled).toBe(true);
+
+    // The enabled entry keeps the new-conversation behavior.
+    newChat?.click();
+    await vi.waitFor(() => {
+      expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
+    });
+  });
+
+  it("pins a conversation into the pinned section as a local placeholder", async () => {
+    installRouter({
+      list: () => page([summary(ID_A), summary(ID_B)], null)
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+    // Everything starts under Recents; the pinned section stays hidden.
+    expect(byText(container, ".section-label", "最近")).toBeDefined();
+    expect(byText(container, ".section-label", "置顶")).toBeUndefined();
+
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static button[aria-label='置顶 对话 ${ID_B}']`
+      )
+      ?.click();
+
+    // The pinned row moves into the pinned section with the pressed state.
+    const pinnedToggle = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        `.sidebar-static button[aria-label='取消置顶 对话 ${ID_B}']`
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
+    });
+    expect(pinnedToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(byText(container, ".section-label", "置顶")).toBeDefined();
+    const pinnedRow = byText(
+      container,
+      ".item-title",
+      `对话 ${ID_B}`
+    )?.closest(".item-row");
+    const pinnedLabel = byText(container, ".section-label", "置顶");
+    expect(pinnedRow).not.toBeNull();
+    expect(pinnedLabel).not.toBeNull();
+    expect(
+      (pinnedRow as HTMLElement).compareDocumentPosition(
+        pinnedLabel as HTMLElement
+      ) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy();
+
+    // Unpinning returns the row to Recents and hides the section again.
+    pinnedToggle.click();
+    await vi.waitFor(() => {
+      expect(byText(container, ".section-label", "置顶")).toBeUndefined();
+    });
+    expect(
+      container.querySelector(
+        `.sidebar-static button[aria-label='置顶 对话 ${ID_B}']`
+      )
+    ).not.toBeNull();
+  });
+
+  it("opens the row menu with placeholder actions and closes it on Escape", async () => {
+    installRouter({ list: () => page([summary(ID_A)], null) });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      `.sidebar-static [data-row-menu-trigger="${ID_A}"]`
+    );
+    trigger?.click();
+    const menu = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLElement>(
+        ".sidebar-static [role='menu']"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    // Full placeholder set, mirroring the reference menu.
+    for (const label of [
+      "分享",
+      "重命名",
+      "置顶对话",
+      "归档",
+      "删除",
+      "移动到项目"
+    ]) {
+      expect(byText(menu, ".menu-item", label)).toBeDefined();
+    }
+
+    menu.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true
+      })
+    );
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static [role='menu']")
+      ).toBeNull();
+    });
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("pins from the row menu and closes it on outside click", async () => {
+    installRouter({ list: () => page([summary(ID_A)], null) });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-row-menu-trigger="${ID_A}"]`
+      )
+      ?.click();
+    const menu = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLElement>(
+        ".sidebar-static [role='menu']"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    byText(menu, ".menu-item", "置顶对话")?.click();
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static [role='menu']")
+      ).toBeNull();
+    });
+    expect(byText(container, ".section-label", "置顶")).toBeDefined();
+
+    // Reopen, then an outside click closes the menu without changes.
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-row-menu-trigger="${ID_A}"]`
+      )
+      ?.click();
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static [role='menu']")
+      ).not.toBeNull();
+    });
+    // Outside click (a real pointer press carries coordinates; the
+    // touch-synthetic (0,0) twin is ignored by the sidebar).
+    document.body.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: 10, clientY: 10 })
+    );
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static [role='menu']")
+      ).toBeNull();
+    });
+    expect(byText(container, ".section-label", "置顶")).toBeDefined();
+  });
+
+  it("deletes a conversation from the row menu through the confirm dialog", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id))
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-row-menu-trigger="${ID_A}"]`
+      )
+      ?.click();
+    const menu = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLElement>(
+        ".sidebar-static [role='menu']"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    byText(menu, ".menu-item", "删除")?.click();
+
+    const dialog = await vi.waitFor(() => {
+      const found = document.querySelector<HTMLElement>(
+        "[role='dialog'], [role='alertdialog']"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(dialog.textContent).toContain("删除对话");
+    byText(dialog, "button", "删除")?.click();
+
+    await vi.waitFor(() => {
+      expect(
+        byText(container, ".item-title", `对话 ${ID_A}`)
+      ).toBeUndefined();
+    });
+    const request = requests.find((entry) => entry.init?.method === "DELETE");
+    expect(
+      (request?.init?.headers as Record<string, string>)["X-CSRF-Token"]
+    ).toBe("csrf-shell");
   });
 });
 

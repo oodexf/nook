@@ -56,7 +56,8 @@ describe("decodeConversationSummary", () => {
       title: "研究笔记",
       model: "test-model",
       createdAt: 1786000000000,
-      updatedAt: 1786000001000
+      updatedAt: 1786000001000,
+      pinned: false
     });
   });
 

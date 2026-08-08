@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onSessionExpired } from "../api/client";
 import {
   createConversationStore,
+  groupConversations,
   sortConversations
 } from "./conversation-store.svelte";
 
@@ -386,10 +387,22 @@ describe("conversation store", () => {
 describe("sortConversations", () => {
   it("orders by updated_at desc with id desc as the tie-breaker", () => {
     const sorted = sortConversations([
-      { id: ID_A, title: "a", model: "m", createdAt: 0, updatedAt: 10 },
-      { id: ID_B, title: "b", model: "m", createdAt: 0, updatedAt: 20 },
-      { id: ID_C, title: "c", model: "m", createdAt: 0, updatedAt: 20 }
+      { id: ID_A, title: "a", model: "m", createdAt: 0, updatedAt: 10, pinned: false },
+      { id: ID_B, title: "b", model: "m", createdAt: 0, updatedAt: 20, pinned: false },
+      { id: ID_C, title: "c", model: "m", createdAt: 0, updatedAt: 20, pinned: false }
     ]);
     expect(sorted.map((item) => item.id)).toEqual([ID_C, ID_B, ID_A]);
+  });
+});
+
+describe("groupConversations", () => {
+  it("splits pinned items first, preserving the incoming order", () => {
+    const groups = groupConversations([
+      { id: ID_A, title: "a", model: "m", createdAt: 0, updatedAt: 30, pinned: false },
+      { id: ID_B, title: "b", model: "m", createdAt: 0, updatedAt: 20, pinned: true },
+      { id: ID_C, title: "c", model: "m", createdAt: 0, updatedAt: 10, pinned: true }
+    ]);
+    expect(groups.pinned.map((item) => item.id)).toEqual([ID_B, ID_C]);
+    expect(groups.recents.map((item) => item.id)).toEqual([ID_A]);
   });
 });
