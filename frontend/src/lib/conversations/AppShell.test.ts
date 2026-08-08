@@ -574,6 +574,50 @@ describe("AppShell", () => {
     expect(document.activeElement).toBe(last);
   });
 
+  it("locks the document to the dynamic viewport while mounted and releases it on unmount", async () => {
+    installRouter({ list: () => page([], null) });
+    expect(document.body.classList.contains("app-shell-lock")).toBe(false);
+
+    mountShell();
+    await vi.waitFor(() => {
+      expect(document.body.classList.contains("app-shell-lock")).toBe(true);
+    });
+
+    const mounted = instance;
+    expect(mounted).toBeDefined();
+    await unmount(mounted as Mounted);
+    instance = undefined;
+    expect(document.body.classList.contains("app-shell-lock")).toBe(false);
+  });
+
+  it("keeps the viewport lock while the drawer scroll lock comes and goes", async () => {
+    installRouter({ list: () => page([summary(ID_A)], null) });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container.querySelector<HTMLButtonElement>("button[aria-label='打开导航']")?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".drawer [role='dialog']")).not.toBeNull();
+    });
+    // The drawer's temporary inline lock layers on top of the shell's
+    // persistent class lock without disturbing it.
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.body.classList.contains("app-shell-lock")).toBe(true);
+
+    container
+      .querySelector<HTMLElement>(".drawer [role='dialog']")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+      );
+    await vi.waitFor(() => {
+      expect(container.querySelector(".drawer")).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
+    expect(document.body.classList.contains("app-shell-lock")).toBe(true);
+  });
+
   it("locks body scroll while the drawer is open and restores it on close", async () => {
     installRouter({ list: () => page([summary(ID_A)], null) });
     mountShell();
@@ -599,6 +643,484 @@ describe("AppShell", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
+  it("collapses and restores the desktop sidebar with focus management", async () => {
+    installRouter({ list: () => page([summary(ID_A)], null) });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    expect(container.querySelector(".shell.sidebar-collapsed")).toBeNull();
+    const collapse = container.querySelector<HTMLButtonElement>(
+      ".sidebar-static button[aria-label='收起侧边栏']"
+    );
+    expect(collapse).not.toBeNull();
+    collapse?.click();
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".shell.sidebar-collapsed")).not.toBeNull();
+    });
+    // Focus moves to the always-reachable restore control in the header.
+    const restore = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='展开侧边栏']"
+    );
+    expect(restore).not.toBeNull();
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(restore);
+    });
+
+    restore?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".shell.sidebar-collapsed")).toBeNull();
+    });
+    expect(
+      container.querySelector("button[aria-label='展开侧边栏']")
+    ).toBeNull();
+    // Focus returns to the collapse trigger inside the restored sidebar.
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(
+          ".sidebar-static button[aria-label='收起侧边栏']"
+        )
+      );
+    });
+  });
+
+  it("keeps the mobile drawer independent from the desktop collapsed state", async () => {
+    installRouter({ list: () => page([summary(ID_A)], null) });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>(
+        ".sidebar-static button[aria-label='收起侧边栏']"
+      )
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".shell.sidebar-collapsed")).not.toBeNull();
+    });
+
+    // The modal drawer still opens with its dialog semantics, close
+    // control, and body-scroll lock.
+    container
+      .querySelector<HTMLButtonElement>("button[aria-label='打开导航']")
+      ?.click();
+    const drawer = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLElement>(
+        ".drawer [role='dialog']"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(drawer.getAttribute("aria-modal")).toBe("true");
+    // The drawer sidebar has no collapse control; mobile owns close.
+    expect(
+      drawer.querySelector("button[aria-label='收起侧边栏']")
+    ).toBeNull();
+    expect(
+      drawer.querySelector("button[aria-label='关闭导航']")
+    ).not.toBeNull();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    drawer.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    );
+    await vi.waitFor(() => {
+      expect(container.querySelector(".drawer")).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
+    // The desktop collapsed state survives the drawer cycle untouched.
+    expect(container.querySelector(".shell.sidebar-collapsed")).not.toBeNull();
+  });
+
+  it("treats the sidebar item row as one card with two independent controls", async () => {
+    installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id))
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+    byText(container, ".item", `对话 ${ID_A}`)?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".messages")).not.toBeNull();
+    });
+
+    // The active card chrome lives on the row container; the title
+    // button and the rename trigger are transparent siblings inside it,
+    // never nested interactive elements.
+    const row = container.querySelector<HTMLElement>(
+      ".sidebar-static .item-row.item-row-active"
+    );
+    expect(row).not.toBeNull();
+    const item = row?.querySelector<HTMLButtonElement>(":scope > button.item");
+    expect(item?.getAttribute("aria-current")).toBe("true");
+    expect(item?.classList.contains("item-active")).toBe(false);
+    const trigger = row?.querySelector<HTMLButtonElement>(
+      ":scope > button.rename-trigger"
+    );
+    expect(trigger?.getAttribute("aria-label")).toBe(`重命名 对话 ${ID_A}`);
+    expect(trigger?.querySelector("svg")).not.toBeNull();
+  });
+
+  it("renames from the sidebar and reconciles list and open header", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id)),
+      patch: (id) =>
+        jsonResponse(
+          200,
+          summary(id, { title: "侧栏新标题", updated_at: 1786000002000 })
+        )
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+    byText(container, ".item", `对话 ${ID_A}`)?.click();
+    await vi.waitFor(() => {
+      expect(byText(container, "h1.title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      `.sidebar-static [data-rename-trigger="${ID_A}"]`
+    );
+    expect(trigger?.getAttribute("aria-label")).toBe(`重命名 对话 ${ID_A}`);
+    trigger?.click();
+
+    const input = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLInputElement>(
+        ".sidebar-static #sidebar-rename-input"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLInputElement;
+    });
+    expect(input.value).toBe(`对话 ${ID_A}`);
+
+    input.value = "侧栏新标题";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    container
+      .querySelector<HTMLFormElement>(".sidebar-static .edit-form")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    // The server response reconciles both the sidebar list and the open
+    // header (server-authoritative rename).
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", "侧栏新标题")).toBeDefined();
+    });
+    expect(byText(container, "h1.title", "侧栏新标题")).toBeDefined();
+    const request = requests.find((entry) => entry.init?.method === "PATCH");
+    expect(
+      (request?.init?.headers as Record<string, string>)["X-CSRF-Token"]
+    ).toBe("csrf-shell");
+    expect(request?.init?.body).toBe(JSON.stringify({ title: "侧栏新标题" }));
+    // Editor closed and focus restored to the item's rename trigger.
+    expect(
+      container.querySelector(".sidebar-static #sidebar-rename-input")
+    ).toBeNull();
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(`.sidebar-static [data-rename-trigger="${ID_A}"]`)
+      );
+    });
+  });
+
+  it("keeps the old title and shows inline feedback when the sidebar rename fails", async () => {
+    installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id)),
+      patch: () =>
+        jsonResponse(503, {
+          error: {
+            code: "storage_unavailable",
+            message: "存储暂时不可用，请稍后重试。",
+            request_id: "r1"
+          }
+        })
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-rename-trigger="${ID_A}"]`
+      )
+      ?.click();
+    const input = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLInputElement>(
+        ".sidebar-static #sidebar-rename-input"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLInputElement;
+    });
+    input.value = "另一个标题";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    container
+      .querySelector<HTMLFormElement>(".sidebar-static .edit-form")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(
+        byText(container, ".edit-error", "存储暂时不可用")
+      ).toBeDefined();
+    });
+    expect(
+      container.querySelector(".edit-error")?.getAttribute("role")
+    ).toBe("alert");
+    // The failed save is never silently discarded: the editor stays open
+    // with the draft, and the list never shows the unsaved title.
+    expect(
+      container.querySelector(".sidebar-static #sidebar-rename-input")
+    ).not.toBeNull();
+    expect(input.value).toBe("另一个标题");
+    expect(byText(container, ".item-title", "另一个标题")).toBeUndefined();
+    // The busy state clears before focus returns: the re-enabled editor
+    // regains focus instead of the focus call landing on a disabled input.
+    expect(input.disabled).toBe(false);
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
+
+    // Escape still cancels afterwards and restores the old title.
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    );
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static #sidebar-rename-input")
+      ).toBeNull();
+    });
+    expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+  });
+
+  it("cancels the sidebar rename with Escape without sending a request", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id))
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-rename-trigger="${ID_A}"]`
+      )
+      ?.click();
+    const input = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLInputElement>(
+        ".sidebar-static #sidebar-rename-input"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLInputElement;
+    });
+    input.value = "未提交的标题";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static #sidebar-rename-input")
+      ).toBeNull();
+    });
+    expect(requests.some((entry) => entry.init?.method === "PATCH")).toBe(false);
+    expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    // Focus returns to the item's rename trigger.
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector(`.sidebar-static [data-rename-trigger="${ID_A}"]`)
+      );
+    });
+  });
+
+  it("commits a changed sidebar title on safe blur and closes silently when unchanged", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id)),
+      patch: (id) =>
+        jsonResponse(
+          200,
+          summary(id, { title: "模糊提交", updated_at: 1786000002000 })
+        )
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    // Unchanged blur: closes without a request.
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-rename-trigger="${ID_A}"]`
+      )
+      ?.click();
+    let input = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLInputElement>(
+        ".sidebar-static #sidebar-rename-input"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLInputElement;
+    });
+    input.dispatchEvent(new FocusEvent("blur"));
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".sidebar-static #sidebar-rename-input")
+      ).toBeNull();
+    });
+    expect(requests.some((entry) => entry.init?.method === "PATCH")).toBe(false);
+
+    // Changed blur: commits through the same server-authoritative path.
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-rename-trigger="${ID_A}"]`
+      )
+      ?.click();
+    input = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLInputElement>(
+        ".sidebar-static #sidebar-rename-input"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLInputElement;
+    });
+    input.value = "模糊提交";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    // The user moved focus elsewhere (tab/click away) before the blur.
+    const elsewhere = container.querySelector<HTMLButtonElement>(
+      ".sidebar-static .new-button"
+    );
+    expect(elsewhere).not.toBeNull();
+    elsewhere?.focus();
+    input.dispatchEvent(new FocusEvent("blur"));
+
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", "模糊提交")).toBeDefined();
+    });
+    const request = requests.find((entry) => entry.init?.method === "PATCH");
+    expect(request?.init?.body).toBe(JSON.stringify({ title: "模糊提交" }));
+    // Blur-save never pulls focus backward to the rename trigger; it stays
+    // where the user put it.
+    expect(document.activeElement).toBe(elsewhere);
+    expect(document.activeElement).not.toBe(
+      container.querySelector(`.sidebar-static [data-rename-trigger="${ID_A}"]`)
+    );
+  });
+
+  it("rejects an empty sidebar title inline without a request", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id))
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>(
+        `.sidebar-static [data-rename-trigger="${ID_A}"]`
+      )
+      ?.click();
+    const input = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLInputElement>(
+        ".sidebar-static #sidebar-rename-input"
+      );
+      expect(found).not.toBeNull();
+      return found as HTMLInputElement;
+    });
+    input.value = "   ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    container
+      .querySelector<HTMLFormElement>(".sidebar-static .edit-form")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(byText(container, ".edit-error", "标题不能为空")).toBeDefined();
+    });
+    expect(requests.some((entry) => entry.init?.method === "PATCH")).toBe(false);
+    // The editor stays open and no title was replaced.
+    expect(
+      container.querySelector(".sidebar-static #sidebar-rename-input")
+    ).not.toBeNull();
+  });
+
+  it("closes the open mobile drawer when crossing into the desktop breakpoint", async () => {
+    let desktopMatches = false;
+    const listeners = new Set<(event: { matches: boolean }) => void>();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      media: query,
+      get matches() {
+        return desktopMatches;
+      },
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: (
+        _type: string,
+        listener: (event: { matches: boolean }) => void
+      ) => listeners.add(listener),
+      removeEventListener: (
+        _type: string,
+        listener: (event: { matches: boolean }) => void
+      ) => listeners.delete(listener),
+      dispatchEvent: () => false
+    }));
+    installRouter({ list: () => page([summary(ID_A)], null) });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+
+    // Collapse the desktop sidebar first: the breakpoint hand-off must
+    // leave the independent collapse state untouched.
+    container
+      .querySelector<HTMLButtonElement>(
+        ".sidebar-static button[aria-label='收起侧边栏']"
+      )
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".shell.sidebar-collapsed")).not.toBeNull();
+    });
+
+    container
+      .querySelector<HTMLButtonElement>("button[aria-label='打开导航']")
+      ?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".drawer [role='dialog']")).not.toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("hidden");
+
+    // The viewport crosses into the desktop breakpoint.
+    desktopMatches = true;
+    for (const listener of listeners) listener({ matches: true });
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".drawer")).toBeNull();
+    });
+    // The scroll lock is released and focus does not land on the menu
+    // button, which is hidden at the desktop breakpoint.
+    expect(document.body.style.overflow).toBe("");
+    expect(document.activeElement).not.toBe(
+      container.querySelector("button[aria-label='打开导航']")
+    );
+    expect(container.querySelector(".shell.sidebar-collapsed")).not.toBeNull();
+
+    // Crossing back to mobile does not resurrect the drawer.
+    desktopMatches = false;
+    for (const listener of listeners) listener({ matches: false });
+    await vi.waitFor(() => {
+      expect(container.querySelector(".drawer")).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
+  });
+
   it("sign-out remains available in the sidebar", async () => {
     const onSignOut = vi.fn();
     installRouter({ list: () => page([], null) });
@@ -607,11 +1129,61 @@ describe("AppShell", () => {
       props: { csrfToken: "csrf-shell", isSigningOut: false, onSignOut }
     }) as Mounted;
 
+    // The sign-out control is a compact icon button (08-08 UI polish):
+    // identified by its accessible name rather than visible text.
     await vi.waitFor(() => {
-      expect(byText(container, ".sign-out", "退出登录")).toBeDefined();
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "button.sign-out[aria-label='退出登录']"
+        )
+      ).not.toBeNull();
     });
-    byText(container, ".sign-out", "退出登录")?.click();
+    container
+      .querySelector<HTMLButtonElement>("button.sign-out[aria-label='退出登录']")
+      ?.click();
     expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens settings left of the collapse control and applies the theme", async () => {
+    installRouter({ list: () => page([], null) });
+    mountShell();
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("button[aria-label='收起侧边栏']")
+      ).not.toBeNull();
+    });
+    const settings = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='设置']"
+    );
+    const collapse = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='收起侧边栏']"
+    );
+    expect(settings).not.toBeNull();
+    // Settings sits to the left of the collapse control.
+    expect(
+      settings!.compareDocumentPosition(collapse!) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).not.toBe(0);
+
+    settings!.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    });
+
+    const dark = container.querySelector<HTMLInputElement>(
+      "input[value='dark']"
+    );
+    expect(dark).not.toBeNull();
+    dark!.click();
+
+    await vi.waitFor(() => {
+      expect(document.documentElement.dataset.theme).toBe("dark");
+    });
+    expect(window.localStorage.getItem("chat.theme-preference")).toBe("dark");
+
+    // Tidy up the applied attribute for later tests in this file.
+    delete document.documentElement.dataset.theme;
   });
 });
 

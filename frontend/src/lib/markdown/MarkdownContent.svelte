@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { copyText } from "../clipboard/copy-text";
+  import { createCopyControl } from "../clipboard/copy-control";
   import { renderMarkdown } from "./render";
 
   /**
@@ -17,14 +17,23 @@
     content: string;
     /** Accessible name for the rendered region (e.g. the speaker). */
     ariaLabel?: string;
+    /**
+     * Suppresses the injected code-block copy controls while still
+     * rendering sanitized Markdown live. Used for non-terminal streaming
+     * snapshots, where the markup is recreated per throttle tick and an
+     * interactive control would be exposed on transient content;
+     * persisted/terminal output keeps the controls.
+     */
+    suppressCodeCopy?: boolean;
   };
 
-  const { content, ariaLabel = "消息内容" }: Props = $props();
+  const {
+    content,
+    ariaLabel = "消息内容",
+    suppressCodeCopy = false
+  }: Props = $props();
 
   const COPY_LABEL = "复制代码";
-  const COPIED_LABEL = "已复制";
-  const FAILED_LABEL = "复制失败";
-  const FEEDBACK_MS = 1600;
 
   let root = $state<HTMLElement | null>(null);
 
@@ -36,30 +45,29 @@
   }
 
   function attachCopyButton(pre: HTMLElement): void {
-    if (pre.querySelector(":scope > .code-copy") !== null) return;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "code-copy";
-    button.textContent = COPY_LABEL;
-    button.addEventListener("click", () => {
-      void copyText(codeTextOf(pre)).then((ok) => {
-        button.textContent = ok ? COPIED_LABEL : FAILED_LABEL;
-        // The text change doubles as the status announcement; the button
-        // keeps focus, so screen readers re-read its name.
-        window.setTimeout(() => {
-          button.textContent = COPY_LABEL;
-        }, FEEDBACK_MS);
-      });
+    if (pre.querySelector(":scope > .copy-slot") !== null) return;
+    // The same shared control as message-level copy (Phase I-02): compact
+    // icon button with accessible name and polite copied/failed feedback.
+    const control = createCopyControl({
+      label: COPY_LABEL,
+      copiedAnnouncement: "代码已复制到剪贴板",
+      failedAnnouncement: "复制失败，请手动选择文本复制",
+      getText: () => codeTextOf(pre)
     });
-    pre.appendChild(button);
+    const slot = document.createElement("span");
+    slot.className = "copy-slot";
+    slot.append(control.button, control.status);
+    pre.appendChild(slot);
   }
 
   // Re-enhance whenever the sanitized markup re-renders. Effects run after
-  // DOM updates, so the fresh `pre` nodes are in place.
+  // DOM updates, so the fresh `pre` nodes are in place. Suppressed
+  // snapshots simply skip injection; the next non-suppressed render
+  // attaches the controls to the fresh nodes.
   $effect(() => {
     void html;
     const element = root;
-    if (!element) return;
+    if (!element || suppressCodeCopy) return;
     for (const pre of element.querySelectorAll<HTMLElement>("pre")) {
       attachCopyButton(pre);
     }
@@ -132,12 +140,13 @@
     font-size: 0.86em;
   }
 
-  /* Code blocks scroll internally instead of widening the page. */
+  /* Code blocks scroll internally instead of widening the page. The code
+     starts flush at the top: the copy control no longer reserves layout
+     space because it is revealed on hover/focus only (see below). */
   .markdown :global(pre) {
     position: relative;
     overflow-x: auto;
     padding: var(--space-3);
-    padding-top: calc(var(--touch-target) + var(--space-3));
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface-muted);
@@ -175,30 +184,27 @@
     background: var(--surface-muted);
   }
 
-  /* Injected by the component after sanitization (real DOM node). */
-  .markdown :global(.code-copy) {
+  /* Injected by the component after sanitization (real DOM node); the
+     shared `.copy-button` chrome lives in global.css, only the code-block
+     placement is local. Hidden until the block is hovered or the button
+     itself receives keyboard focus (focus-within), so the code stays
+     flush while the control remains keyboard reachable. */
+  .markdown :global(pre .copy-button) {
     position: absolute;
     top: var(--space-2);
     right: var(--space-2);
-    min-width: var(--touch-target);
-    min-height: var(--touch-target);
-    padding: 0 var(--space-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--muted);
+    border-color: var(--border);
     background: var(--surface);
-    font-size: 0.72rem;
-    font-weight: 650;
-    cursor: pointer;
+    opacity: 0;
     transition:
+      opacity var(--motion-fast),
+      border-color var(--motion-fast),
       background-color var(--motion-fast),
-      color var(--motion-fast),
-      border-color var(--motion-fast);
+      color var(--motion-fast);
   }
 
-  .markdown :global(.code-copy):hover {
-    border-color: var(--border-strong);
-    color: var(--text);
-    background: var(--surface-muted);
+  .markdown :global(pre:hover .copy-button),
+  .markdown :global(pre:focus-within .copy-button) {
+    opacity: 1;
   }
 </style>

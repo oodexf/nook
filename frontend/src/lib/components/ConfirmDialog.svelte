@@ -231,6 +231,6 @@
   }
 
   .confirm:hover:not(:disabled) {
-    background: #98281d;
+    background: color-mix(in srgb, var(--danger) 85%, #000000);
   }
 </style>

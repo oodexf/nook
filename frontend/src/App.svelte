@@ -6,8 +6,12 @@
   import { createSessionStore } from "./lib/auth/session-store.svelte";
   import PrimaryButton from "./lib/components/PrimaryButton.svelte";
   import AppShell from "./lib/conversations/AppShell.svelte";
+  import { createThemeStore } from "./lib/theme/theme-store.svelte";
 
   const session = createSessionStore();
+  // Created at the root so the theme applies to the auth page too; the
+  // shell receives the same instance for the settings dialog (08-08).
+  const theme = createThemeStore();
 
   onMount(() => {
     const controller = new AbortController();
@@ -32,6 +36,7 @@
     csrfToken={session.status.csrfToken}
     isSigningOut={session.isBusy}
     onSignOut={() => void session.logout()}
+    {theme}
   />
 {:else}
 <main class="auth-main">
