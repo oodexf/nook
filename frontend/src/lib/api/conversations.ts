@@ -23,6 +23,13 @@ export type ConversationSummary = {
   model: string;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Pin state placeholder (08-08 sidebar redesign): the wire contract has
+   * no pin field yet, so decoding defaults this to `false` and the sidebar
+   * flips it locally for the pinned-section preview only. Persistence
+   * lands with a future backend contract change.
+   */
+  pinned: boolean;
 };
 
 export type ChatMessage = {
@@ -115,7 +122,8 @@ export function decodeConversationSummary(
       title: value.title,
       model: value.model,
       createdAt: value.created_at,
-      updatedAt: value.updated_at
+      updatedAt: value.updated_at,
+      pinned: false
     };
   }
   return null;

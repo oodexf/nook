@@ -69,6 +69,13 @@ export type ConversationStore = {
   ): Promise<ConversationSummary>;
   /** Throws `ApiError` on failure; reconciles list + current on success. */
   remove(id: string, csrfToken: string): Promise<void>;
+  /**
+   * Pin placeholder (08-08 sidebar redesign): flips `pinned` locally so
+   * the sidebar can preview the pinned section. Not persisted — any
+   * server-sourced list replacement (load, loadMore, refreshList) resets
+   * it, until a backend pin contract lands.
+   */
+  togglePinPlaceholder(id: string): void;
 };
 
 const SELECTED_ID_STORAGE_KEY = "chat.selected-conversation-id";
@@ -106,6 +113,26 @@ export function sortConversations(
     if (a.updatedAt !== b.updatedAt) return b.updatedAt - a.updatedAt;
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
+}
+
+export type ConversationGroups = {
+  pinned: ConversationSummary[];
+  recents: ConversationSummary[];
+};
+
+/**
+ * Splits a server-ordered page into the pinned section and the recents
+ * section (08-08 sidebar redesign). Order inside each section keeps the
+ * incoming server ordering; pinning is a placeholder without persistence,
+ * so this never re-sorts.
+ */
+export function groupConversations(
+  conversations: ConversationSummary[]
+): ConversationGroups {
+  return {
+    pinned: conversations.filter((item) => item.pinned),
+    recents: conversations.filter((item) => !item.pinned)
+  };
 }
 
 export function createConversationStore(): ConversationStore {
@@ -289,6 +316,12 @@ export function createConversationStore(): ConversationStore {
       if (selectedId === id) {
         clearSelection();
       }
+    },
+
+    togglePinPlaceholder(id: string): void {
+      items = items.map((item) =>
+        item.id === id ? { ...item, pinned: !item.pinned } : item
+      );
     }
   };
 }
