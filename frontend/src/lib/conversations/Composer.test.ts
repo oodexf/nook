@@ -210,6 +210,63 @@ describe("Composer", () => {
     expect(textarea.style.height).toBe("0px");
   });
 
+  function selectFiles(container: HTMLElement, names: string[]) {
+    const input = container.querySelector<HTMLInputElement>("input[type='file']");
+    expect(input).not.toBeNull();
+    if (!input) throw new Error("missing file input");
+    const files = names.map(
+      (name) => new File(["内容"], name, { type: "text/plain" })
+    );
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    flushSync();
+  }
+
+  it("shows picked local files as display-only chips and clears them on send", () => {
+    const onSend = vi.fn();
+    const { container, instance } = mountComposer({ onSend });
+    cleanup = () => {
+      void unmount(instance);
+      container.remove();
+    };
+
+    expect(
+      container.querySelector("button[aria-label='添加本地文件']")
+    ).not.toBeNull();
+
+    selectFiles(container, ["notes.txt", "设计稿.md"]);
+    const chips = Array.from(
+      container.querySelectorAll(".attachment-name")
+    ).map((element) => element.textContent);
+    expect(chips).toEqual(["notes.txt", "设计稿.md"]);
+
+    // Files are display-only: the sent payload is just the text, and the
+    // selection is cleared with it.
+    type(container, "你好");
+    pressEnter(container);
+    flushSync();
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("你好");
+    expect(container.querySelector(".attachment")).toBeNull();
+  });
+
+  it("removes a picked file via its chip button", () => {
+    const { container, instance } = mountComposer({});
+    cleanup = () => {
+      void unmount(instance);
+      container.remove();
+    };
+
+    selectFiles(container, ["notes.txt"]);
+    expect(container.querySelector(".attachment")).not.toBeNull();
+
+    container
+      .querySelector<HTMLButtonElement>("button[aria-label='移除文件 notes.txt']")
+      ?.click();
+    flushSync();
+    expect(container.querySelector(".attachment")).toBeNull();
+  });
+
   it("has an accessible label for the input", () => {
     const { container, instance } = mountComposer({});
     cleanup = () => {
