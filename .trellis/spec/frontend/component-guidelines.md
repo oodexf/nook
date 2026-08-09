@@ -93,6 +93,13 @@ conversations show a non-editable model label.
 Only `MarkdownContent` inserts sanitized HTML. Other components render text
 through normal Svelte escaping.
 
+Assistant formulas are part of that same boundary. Formula tokens become
+per-render cryptographic placeholders before ordinary Markdown is sanitized;
+ordinary source keeps the strict no-style/no-SVG policy. Only matching
+in-memory `trust: false` KaTeX fragments pass through the separate exact
+KaTeX sanitizer and replace surviving placeholders. Do not add KaTeX layout
+permissions to the ordinary Markdown policy or create another `{@html}` path.
+
 Raw HTML, iframes, unsafe SVG, remote embeds, event attributes, and dangerous
 URL schemes are disabled.
 

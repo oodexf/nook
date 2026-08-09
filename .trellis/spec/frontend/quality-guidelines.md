@@ -82,7 +82,14 @@ dangerous data: URLs
 iframe
 unsafe SVG
 malformed HTML
+raw-source attempts to forge formula placeholders, KaTeX classes, style, or SVG
+untrusted TeX URL/HTML commands under trust:false
 ```
+
+Formula tests must also prove the positive isolated lane retains visual KaTeX,
+MathML accessibility, verified numeric layout style, and required SVG/path
+geometry. Never broaden ordinary Markdown style/SVG/URL permissions to make a
+formula render.
 
 Browser bundle inspection confirms provider credentials and instance token are
 absent.
@@ -90,7 +97,9 @@ absent.
 ## Performance Gate
 
 - Production compressed initial assets target under 250 KB, measured rather
-  than assumed.
+  than assumed. The gate is the browser's actual initial JS + CSS transfer;
+  self-hosted formula fonts requested on demand by CSS are reported separately,
+  together with the all-formula-asset total.
 - Streaming UI batches updates to animation frames.
 - A 100 KB response remains interactive.
 - Long histories do not trigger parsing of every message on every delta.

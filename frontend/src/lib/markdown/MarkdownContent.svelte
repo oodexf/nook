@@ -79,6 +79,8 @@
 
 <style>
   .markdown {
+    min-width: 0;
+    max-width: 100%;
     line-height: 1.7;
     overflow-wrap: anywhere;
   }
@@ -182,6 +184,46 @@
 
   .markdown :global(th) {
     background: var(--surface-muted);
+  }
+
+  /* KaTeX's internal positioning is owned by its self-hosted stylesheet.
+     These rules affect only the outer formula states: inline math follows
+     the surrounding baseline, while display math scrolls locally on narrow
+     screens instead of widening the message lane or page. */
+  .markdown :global(.katex) {
+    font-size: 1em;
+  }
+
+  .markdown :global(.katex-display) {
+    max-width: 100%;
+    margin: var(--space-4) 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: var(--space-1);
+    text-align: center;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .markdown :global(.katex-display > .katex) {
+    display: inline-block;
+    min-width: max-content;
+    text-align: initial;
+  }
+
+  .markdown :global(.katex-error) {
+    color: var(--danger);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    user-select: text;
+  }
+
+  .markdown :global(.katex-error-display) {
+    display: block;
+    max-width: 100%;
+    margin: var(--space-4) 0;
+    overflow-x: auto;
+    white-space: pre;
   }
 
   /* Injected by the component after sanitization (real DOM node); the

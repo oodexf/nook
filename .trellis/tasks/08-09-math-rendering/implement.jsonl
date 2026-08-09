@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "公式必须复用唯一 MarkdownContent 净化 HTML 边界，并符合组件与可访问性规则"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "实施需遵守安全、性能、浏览器和新增依赖资源影响门槛"}

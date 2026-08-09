@@ -56,6 +56,25 @@ describe("MessageList", () => {
     document.body.innerHTML = "";
   });
 
+  it("renders formulas only for persisted assistant messages", () => {
+    const formula = "formula $x^2$. ";
+    const { container, destroy } = mountList({
+      messages: [
+        message({ role: "user", content: formula }),
+        message({ role: "assistant", content: formula })
+      ]
+    });
+
+    const userMessage = container.querySelector("article[aria-label='你']");
+    expect(userMessage?.querySelector(".katex")).toBeNull();
+    expect(userMessage?.textContent).toContain("$x^2$");
+    const assistantMessage = container.querySelector(
+      "article[aria-label='助手']"
+    );
+    expect(assistantMessage?.querySelector(".katex msup")).not.toBeNull();
+    destroy();
+  });
+
   it("renders content as escaped plain text, never as HTML", () => {
     const { container, destroy } = mountList({
       messages: [

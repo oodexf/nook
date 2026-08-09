@@ -29,6 +29,8 @@
   },
   "dependencies": {
     "dompurify": "^3.4.13",
-    "marked": "^18.0.9"
+    "katex": "0.17.0",
+    "marked": "^18.0.9",
+    "marked-katex-extension": "5.1.10"
   }
 }
