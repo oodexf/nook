@@ -251,7 +251,63 @@ rollback.
 - [x] `H-08` Run Trellis check and resolve every verified blocking finding.
 - [ ] `H-09` Complete Trellis spec update, commit, finish, and archive workflow.
 
-## 10. Required Test Fixtures
+## 10. Phase I — Priority Chat UI Repairs
+
+- [x] `I-01` Refactor persisted and streaming message presentation into clear
+      role-based lanes: user on the right, assistant on the left, with bounded
+      readable widths and consistent status/action ownership.
+- [x] `I-02` Add a reusable copy icon and convert message/code copy actions to
+      compact icon controls with transparent resting borders, visible
+      hover/focus borders, accessible names, and copied/failed feedback.
+- [x] `I-03` Add desktop sidebar collapse/restore controls owned by `AppShell`,
+      preserving the existing mobile drawer, focus trap, Escape handling, and
+      scroll lock.
+- [x] `I-04` Add inline sidebar title editing wired to
+      `ConversationStore.rename`, including Enter submit, Escape cancel,
+      validation, busy state, server reconciliation, error recovery, and focus
+      restoration.
+- [x] `I-05` Render throttled sanitized Markdown snapshots during assistant
+      streaming and force a final render on terminal transition; keep
+      `MarkdownContent` as the sole HTML insertion boundary.
+- [x] `I-06` Add or update component tests covering role alignment hooks,
+      copy-button semantics/states, desktop collapse/restore, unchanged mobile
+      drawer behavior, sidebar rename success/failure/cancel, and live Markdown
+      including incomplete fences and XSS payloads.
+- [ ] `I-07` Have Kimi K3 perform the UI design and implementation, then run an
+      independent full-scope review and the frontend quality gate.
+
+### Validation
+
+```text
+npm --prefix frontend run check
+npm --prefix frontend run lint
+npm --prefix frontend run test
+npm --prefix frontend run build
+```
+
+Manual viewport/focus checks:
+
+```text
+375x667 and 390x844 mobile drawer + message lanes
+768x1024 collapsed/restored desktop breakpoint behavior
+1024x768 and 1440x900 message widths + sidebar editing
+keyboard-only collapse, restore, rename, copy, cancel
+long and incomplete streamed Markdown with code fences
+```
+
+### Elevated-risk files and rollback
+
+- `frontend/src/lib/markdown/MarkdownContent.svelte` and
+  `StreamingTurn.svelte`: sanitizer and streaming performance boundary;
+- `frontend/src/lib/conversations/AppShell.svelte`, `ChatPane.svelte`, and
+  `Sidebar.svelte`: responsive navigation and focus ownership;
+- message components: persisted/streaming parity and retry/copy ownership.
+
+Each repair should remain independently revertible. If live Markdown causes
+measured responsiveness or sanitizer regressions, fall back to the existing
+terminal-only Markdown rendering without reverting the other four repairs.
+
+## 11. Required Test Fixtures
 
 The fake provider must cover:
 
@@ -271,7 +327,7 @@ delayed cancellation
 usage present and absent
 ```
 
-## 11. Files With Elevated Risk
+## 12. Files With Elevated Risk
 
 Once created, changes to these areas require focused review:
 
@@ -284,7 +340,7 @@ Once created, changes to these areas require focused review:
 - Docker user, filesystem, and volume configuration;
 - log field construction.
 
-## 12. Task Decomposition Note
+## 13. Task Decomposition Note
 
 This task retains the integrated requirements and design. Before implementation,
 it may be converted into a Trellis parent with child tasks aligned to Phases

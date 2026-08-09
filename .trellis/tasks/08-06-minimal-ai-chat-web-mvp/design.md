@@ -455,6 +455,39 @@ Only UI preferences, latest draft model ID, selected conversation ID, and
 unsent draft may use localStorage. Raw access tokens and full conversation data
 must not.
 
+### Chat UI repair design
+
+- **Message lanes:** one shared role-aware message presentation is used by both
+  persisted messages and `StreamingTurn`. User rows justify to the right and
+  use a bounded bubble width; assistant rows justify to the left and preserve a
+  wider Markdown reading column. Status, copy, retry, and error treatment stay
+  attached to the owning message rather than forming a separate mixed flow.
+- **Copy controls:** add a reusable copy icon and render copy actions as compact
+  icon-only controls with `aria-label`/title and polite copied/failed feedback.
+  The resting border may be transparent, but hover, `:focus-visible`, copied,
+  and failed states must be visible. The 44px interactive hit area remains even
+  when the glyph and visual chrome are smaller.
+- **Desktop sidebar collapse:** `AppShell` owns a component-local desktop
+  collapsed preference and the shell grid transition. Collapsing hides the
+  desktop sidebar and exposes an always-reachable restore control in the chat
+  header. The mobile drawer remains a separate modal interaction and is not
+  replaced by the desktop collapsed state. Persisting this allowed UI
+  preference is optional; if persisted, validate the stored value.
+- **Sidebar rename:** `Sidebar` owns only the active editor/focus/error state and
+  invokes the existing `ConversationStore.rename` mutation supplied with the
+  in-memory CSRF token. The server response remains authoritative and updates
+  both list and open header. Enter submits, Escape cancels, blur must not
+  silently discard a failed save, and selection is suppressed while editing.
+  The existing header rename may be retained as an alternate entry point unless
+  removing it materially simplifies the interaction without reducing access.
+- **Live Markdown:** `MarkdownContent` remains the only sanitized HTML insertion
+  point. `StreamingTurn` passes a throttled snapshot of the accumulated stream
+  through that component during generation. Throttling is time/frame bounded
+  independently of transport chunk cadence, renders incomplete Markdown
+  defensively, and performs the final immediate render on terminal state. It
+  must not weaken the sanitizer, add another `{@html}` site, or announce every
+  token.
+
 Markdown is parsed without raw HTML and sanitized. Dangerous protocols, event
 attributes, iframes, unsafe SVG, and remote embeds are rejected.
 
@@ -566,6 +599,11 @@ database-generic SQL prematurely.
   every token during a process crash.
 - No service worker favors predictable upgrades over installability and offline
   behavior.
+- Throttled live Markdown favors timely structure during generation while
+  preserving responsiveness; it intentionally avoids both per-token reparsing
+  and a terminal-only plain-text experience.
+- Separate desktop collapse and mobile drawer state favors predictable keyboard
+  and focus behavior over one overloaded responsive navigation state machine.
 
 ## 19. Rollback
 

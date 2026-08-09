@@ -20,11 +20,18 @@ only for image size.
 
 ## Confirmed Facts
 
-- The repository uses Trellis for task planning, implementation, and quality
-  gates.
-- No product code exists yet.
-- Existing `.trellis/spec/backend` and `.trellis/spec/frontend` files are
-  bootstrap placeholders rather than established project conventions.
+- The MVP is implemented as a Svelte 5 frontend served by the Rust application.
+- Persisted assistant messages already use the single sanitized `MarkdownContent`
+  rendering boundary; streamed assistant text is currently plain text until the
+  generation reaches a terminal state.
+- Conversation rename already exists through the typed API and conversation
+  store, but its editing control is currently in the chat header rather than
+  the sidebar.
+- Desktop uses a fixed 300px sidebar, while mobile already uses an accessible
+  modal drawer.
+- The existing frontend specification requires at least 44×44 touch targets,
+  accessible names for icon-only buttons, controlled live-region announcements,
+  and no Markdown parsing for every transport delta.
 
 ## Requirements
 
@@ -73,6 +80,20 @@ only for image size.
 - The UI preserves partial output and provides a clear recovery action when a
   request fails.
 - Markdown and code blocks are rendered safely and can be copied.
+- User messages form a distinct right-aligned visual flow; assistant messages
+  form a distinct left-aligned visual flow, including the optimistic user
+  message and in-progress assistant response.
+- Message and code-copy actions use compact icons with accessible names; their
+  borders become visible on hover and keyboard focus without relying on hover
+  for discoverability.
+- The desktop sidebar can be collapsed and restored without changing the
+  existing mobile drawer behavior.
+- A conversation title can be edited inline from its sidebar item using the
+  existing server-authoritative rename behavior, with validation and recoverable
+  inline errors.
+- Assistant Markdown is rendered safely while generation is in progress, using
+  bounded update cadence so streaming remains responsive and does not parse on
+  every transport delta.
 
 ### R4. Self-hosting
 
@@ -172,6 +193,23 @@ only for image size.
       errors and does not expose the upstream response body.
 - [ ] `AC-14` The release build is manually verified on Safari and iOS Safari
       in addition to automated browser coverage.
+- [ ] `AC-15` Persisted and streaming user messages are visually grouped on the
+      right, while persisted and streaming assistant messages are grouped on the
+      left, with readable widths at desktop and mobile viewports.
+- [ ] `AC-16` Message and code-copy controls are compact icon buttons with
+      accessible names, visible keyboard focus, and a border that appears on
+      hover/focus; copied and failed feedback remains announced.
+- [ ] `AC-17` Desktop users can collapse and restore the sidebar with keyboard
+      and pointer controls, while the mobile modal drawer retains its focus trap,
+      Escape behavior, and body-scroll lock.
+- [ ] `AC-18` A user can start, submit, cancel, and recover from a conversation
+      rename directly within the sidebar; a successful rename reconciles the
+      sidebar and open header from the server response, and a failed rename does
+      not replace the old title.
+- [ ] `AC-19` During generation, safe Markdown structures become visible before
+      the terminal event, partial/incomplete Markdown remains usable, XSS
+      protections remain unchanged, and rendering is rate-limited rather than
+      triggered for every incoming transport delta.
 
 ## Out of Scope
 
