@@ -163,18 +163,136 @@ describe("renderMarkdown math syntax and output", () => {
     );
   });
 
-  it("renders only line-isolated double dollars as display math", () => {
-    const host = render("Before\n\n$$\n\\frac{a}{b}\n$$\n\nAfter");
-    const display = host.querySelector(".katex-display");
-    expect(display).not.toBeNull();
-    expect(display?.querySelector("math")?.getAttribute("display")).toBe(
+  it("renders line-isolated and same-line double dollars as display math", () => {
+    const isolated = render("Before\n\n$$\n\\frac{a}{b}\n$$\n\nAfter");
+    const isolatedDisplay = isolated.querySelector(".katex-display");
+    expect(isolatedDisplay).not.toBeNull();
+    expect(isolatedDisplay?.querySelector("math")?.getAttribute("display")).toBe(
       "block"
     );
-    expect(display?.querySelector("mfrac")).not.toBeNull();
+    expect(isolatedDisplay?.querySelector("mfrac")).not.toBeNull();
 
-    const notDisplay = render("Text $$x+1$$ stays text.");
-    expect(notDisplay.querySelector(".katex")).toBeNull();
-    expect(notDisplay.textContent).toContain("$$x+1$$");
+    const sameLine = render("拉普拉斯变换：$$F(s)=\\int_0^\\infty e^{-st}f(t),dt$$");
+    const sameLineDisplay = sameLine.querySelector(".katex-display");
+    expect(sameLineDisplay).not.toBeNull();
+    expect(sameLineDisplay?.querySelector("math")?.getAttribute("display")).toBe(
+      "block"
+    );
+    expect(sameLineDisplay?.querySelector("msubsup")).not.toBeNull();
+    expect(sameLine.textContent).toContain("拉普拉斯变换：");
+  });
+
+  it("renders adjacent Chinese text and consecutive same-line display formulas in order", () => {
+    const host = render(
+      "高斯积分：$$\\int_{-\\infty}^{\\infty}e^{-x^2},dx=\\sqrt{\\pi}$$" +
+        "施瓦茨不等式：$$|\\langle u,v\\rangle|\\leq|u||v|$$" +
+        "泰勒级数：$$f(x)=\\sum_{n=0}^{\\infty}\\frac{f^{(n)}(a)}{n!}(x-a)^n$$"
+    );
+
+    expect(host.querySelectorAll(".katex-display")).toHaveLength(3);
+    const text = host.textContent ?? "";
+    expect(text.indexOf("高斯积分：")).toBeLessThan(text.indexOf("施瓦茨不等式："));
+    expect(text.indexOf("施瓦茨不等式：")).toBeLessThan(
+      text.indexOf("泰勒级数：")
+    );
+  });
+
+  it("renders the supplied mixed Chinese display and inline formula corpus", () => {
+    const source = String.raw`拉普拉斯变换：$$F(s) = \int_0^\infty e^{-st} f(t) , dt$$
+
+傅里叶变换：$$\hat{f}(\xi) = \int_{-\infty}^{\infty} f(x) e^{-2\pi i x \xi} , dx$$泰勒级数：$$f(x) = \sum_{n=0}^{\infty} \frac{f^{(n)}(a)}{n!}(x-a)^n$$
+
+傅里叶级数：$$f(t) = a_0 + \sum_{n=1}^{\infty} \left(a_n \cos \frac{2\pi nt}{T} + b_n \sin \frac{2\pi nt}{T}\right)$$
+
+高斯积分：$$\int_{-\infty}^{\infty} e^{-x^2} , dx = \sqrt{\pi}$$
+
+施瓦茨不等式：$$|\langle u, v \rangle| \leq |u| |v|$$
+
+伽马函数：$$\Gamma(z) = \int_0^\infty t^{z-1} e^{-t} , dt$$一、基础符号与排版
+上下标：$x_i^2 + y_i^2 = z_i^2$
+分式：$\frac{a}{b} + \frac{c}{d} = \frac{ad + bc}{bd}$
+根式：$\sqrt{x^2 + y^2}$，$\sqrt[3]{a^3 + b^3}$
+希腊字母：$\alpha, \beta, \gamma, \delta, \epsilon, \theta, \lambda, \mu, \pi, \sigma, \omega$
+运算符：$\pm, \times, \div, \cdot, \leq, \geq, \neq, \approx, \propto$
+二、常用数学表达式
+求和公式：$\sum_{i=1}^{n} i^2 = \frac{n(n+1)(2n+1)}{6}$
+积分公式：$\int_0^\infty e^{-x^2} , dx = \frac{\sqrt{\pi}}{2}$
+极限：$\lim_{x \to 0} \frac{\sin x}{x} = 1$
+连乘：$\prod_{k=1}^n k = n!$
+组合数：$\binom{n}{k} = \frac{n!}{k!(n-k)!}$
+绝对值与范数：$| \mathbf{v} | = \sqrt{\sum_i v_i^2}$`;
+    const host = render(source);
+
+    expect(host.querySelectorAll(".katex-display")).toHaveLength(7);
+    expect(host.querySelectorAll(".katex")).toHaveLength(19);
+    expect(host.querySelectorAll(".katex-error")).toHaveLength(0);
+    expect(host.textContent).not.toContain("$$");
+    expect(host.textContent).toContain("一、基础符号与排版");
+    expect(host.textContent).toContain("二、常用数学表达式");
+  });
+
+  it("keeps escaped dollar forms and unmatched openers from hiding later formulas", () => {
+    const host = render(
+      String.raw`before \$$literal$$ then $$x$$; ：\$escaped$。 then ：$y$。; unmatched $word then $$q$$; before $$ $$ after $z$.`
+    );
+
+    expect(host.querySelectorAll(".katex-display")).toHaveLength(2);
+    expect(host.querySelectorAll(".katex")).toHaveLength(4);
+    expect(
+      Array.from(host.querySelectorAll("annotation"), (node) => node.textContent)
+    ).toEqual(["x", "y", "q", "z"]);
+    // The opening escape is consumed while both delimiters remain literal;
+    // importantly, neither escaped pair steals a later formula's closing
+    // delimiter.
+    expect(host.textContent).toContain("before $$literal$$ then");
+    expect(host.textContent).toContain("：$escaped$。 then");
+    expect(host.textContent).toContain("unmatched $word then");
+    expect(host.textContent).toContain("before $$ $$ after");
+  });
+
+  it.each([
+    {
+      source: String.raw`before \$literal then $x$.`,
+      literal: "before $literal then",
+      formula: "x"
+    },
+    {
+      source: String.raw`before \$$literal then $$x$$ after`,
+      literal: "before $$literal then",
+      formula: "x"
+    }
+  ])(
+    "does not let an unmatched escaped opener consume later math: $source",
+    ({ source, literal, formula }) => {
+      const host = render(source);
+
+      expect(host.querySelectorAll(".katex")).toHaveLength(1);
+      expect(host.querySelector("annotation")?.textContent).toBe(formula);
+      expect(host.textContent).toContain(literal);
+    }
+  );
+
+  it("preserves whitespace-only line-isolated display delimiters as literal text", () => {
+    const source = "Before\n\n$$\n \t\n$$\n\nAfter";
+    const host = render(source);
+
+    expect(host.querySelector(".katex")).toBeNull();
+    expect(host.textContent).toContain("$$");
+    expect(host.textContent).toContain("Before");
+    expect(host.textContent).toContain("After");
+  });
+
+  it("supports the full approved CJK punctuation set at both inline boundaries", () => {
+    const punctuation = ["：", "，", "。", "！", "？", "；", "、"];
+    const source = punctuation
+      .map((mark, index) => `${mark}$x_${index}$${mark}`)
+      .join(" ");
+    const host = render(source);
+
+    expect(host.querySelectorAll(".katex")).toHaveLength(punctuation.length);
+    expect(
+      Array.from(host.querySelectorAll("annotation"), (node) => node.textContent)
+    ).toEqual(punctuation.map((_, index) => `x_${index}`));
   });
 
   it("covers superscripts, subscripts, roots, sums, integrals, and matrices", () => {
@@ -246,18 +364,22 @@ describe("renderMarkdown math syntax and output", () => {
   it("does not parse code, currency, unmatched delimiters, or unsupported delimiters", () => {
     const host = render(
       [
-        "`$x$` and 价格是 $5 and unmatched $x and \\(y\\).",
+        "`$x$` and `$$y$$` and 价格是 $5 and unmatched $x and \\(y\\).",
+        "",
+        "unmatched display $$x+1",
         "",
         "```tex",
-        "$z$",
+        "$z$ and $$w$$",
         "```"
       ].join("\n")
     );
     expect(host.querySelector(".katex")).toBeNull();
     expect(host.querySelector("p code")?.textContent).toBe("$x$");
-    expect(host.querySelector("pre code")?.textContent).toContain("$z$");
+    expect(host.querySelectorAll("p code")[1]?.textContent).toBe("$$y$$");
+    expect(host.querySelector("pre code")?.textContent).toContain("$$w$$");
     expect(host.textContent).toContain("价格是 $5");
     expect(host.textContent).toContain("unmatched $x");
+    expect(host.textContent).toContain("unmatched display $$x+1");
     expect(host.textContent).toContain("(y)");
   });
 
@@ -325,7 +447,7 @@ describe("renderMarkdown provenance-isolated KaTeX security", () => {
     String.raw`\includegraphics{https://evil.example/x.svg}`,
     String.raw`\text{<svg onload=alert(1)>}`
   ])("blocks untrusted TeX capability: %s", (tex) => {
-    const host = render(`$${tex}$. `);
+    const host = render([`$${tex}$`, `$$${tex}$$`].join(" "));
     expectNoExecutableCarrier(host);
     expect(host.querySelector(".evil")).toBeNull();
     for (const styled of host.querySelectorAll<HTMLElement>("[style]")) {

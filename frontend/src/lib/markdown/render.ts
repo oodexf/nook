@@ -226,15 +226,187 @@ const mathExtension = markedKatex({
   nonStandard: false
 });
 
-// marked-katex-extension also recognizes inline `$$...$$` and block
-// `$...$`. Narrow its tokenizers to the product syntax: one dollar inline,
-// and line-isolated double dollars for display math.
+const INLINE_OPENING_CJK_PUNCTUATION = /[：，。！？；、]/;
+const INLINE_CLOSING_BOUNDARY = /[\s?!.,:？！。，：；、]/;
+
+function isEscapedAt(source: string, index: number): boolean {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === "\\"; cursor--) {
+    slashCount++;
+  }
+  return slashCount % 2 === 1;
+}
+
+function findClosingDelimiter(
+  source: string,
+  openingIndex: number,
+  delimiterLength: 1 | 2
+): number | undefined {
+  const delimiter = delimiterLength === 2 ? "$$" : "$";
+  let cursor = openingIndex + delimiterLength;
+
+  while (cursor < source.length && source[cursor] !== "\n") {
+    const closingIndex = source.indexOf(delimiter, cursor);
+    if (closingIndex === -1 || source.slice(cursor, closingIndex).includes("\n")) {
+      return undefined;
+    }
+    if (!isEscapedAt(source, closingIndex)) {
+      if (delimiterLength === 2) return closingIndex;
+
+      // A double-dollar pair starts a different formula kind. Treat the
+      // current single-dollar opener as unmatched instead of stealing either
+      // dollar from a later valid display formula.
+      if (source[closingIndex + 1] === "$") return undefined;
+
+      const next = source[closingIndex + 1];
+      if (next === undefined || INLINE_CLOSING_BOUNDARY.test(next)) {
+        return closingIndex;
+      }
+    }
+    cursor = closingIndex + delimiterLength;
+  }
+  return undefined;
+}
+
+function delimiterLengthAt(source: string, index: number): 1 | 2 {
+  return source[index + 1] === "$" ? 2 : 1;
+}
+
+function escapedDollarFormEnd(source: string): number {
+  const openingIndex = 1;
+  const delimiterLength = delimiterLengthAt(source, openingIndex);
+  const delimiter = delimiterLength === 2 ? "$$" : "$";
+  const candidate = source.indexOf(delimiter, openingIndex + delimiterLength);
+
+  if (
+    candidate !== -1 &&
+    !source.slice(openingIndex + delimiterLength, candidate).includes("\n") &&
+    !isEscapedAt(source, candidate)
+  ) {
+    const next = source[candidate + delimiterLength];
+    // Pair an escaped construct only when its first possible closing delimiter
+    // has a valid closing boundary. If that candidate begins later valid math
+    // (for example `\$literal then $x$`), consume only the escaped opener so
+    // the later formula remains available to the ordinary math tokenizer.
+    if (next === undefined || INLINE_CLOSING_BOUNDARY.test(next)) {
+      return candidate + delimiterLength;
+    }
+  }
+
+  return openingIndex + delimiterLength;
+}
+
+function findMathStart(source: string): number | undefined {
+  let cursor = 0;
+  while (cursor < source.length) {
+    const index = source.indexOf("$", cursor);
+    if (index === -1) return undefined;
+
+    if (isEscapedAt(source, index)) {
+      cursor = index + delimiterLengthAt(source, index);
+      continue;
+    }
+
+    const delimiterLength = delimiterLengthAt(source, index);
+    if (delimiterLength === 2) {
+      // Triple dollars are outside the approved syntax.
+      if (source[index + 2] === "$") {
+        cursor = index + 3;
+        continue;
+      }
+
+      const closingIndex = findClosingDelimiter(source, index, 2);
+      if (closingIndex !== undefined) {
+        // Consume an empty/whitespace-only pair as literal syntax so its
+        // closing delimiter cannot be paired with a later valid formula.
+        if (source.slice(index + 2, closingIndex).trim() !== "") return index;
+        cursor = closingIndex + 2;
+        continue;
+      }
+      cursor = index + 2;
+      continue;
+    }
+
+    const previous = source[index - 1];
+    const hasOpeningBoundary =
+      index === 0 ||
+      previous === " " ||
+      (previous !== undefined && INLINE_OPENING_CJK_PUNCTUATION.test(previous));
+    if (!hasOpeningBoundary) {
+      cursor = index + 1;
+      continue;
+    }
+
+    const closingIndex = findClosingDelimiter(source, index, 1);
+    if (
+      closingIndex !== undefined &&
+      source.slice(index + 1, closingIndex).trim() !== ""
+    ) {
+      return index;
+    }
+    cursor = closingIndex === undefined ? index + 1 : closingIndex + 1;
+  }
+  return undefined;
+}
+
+function tokenizeMathAtStart(source: string): Tokens.Generic | undefined {
+  if (!source.startsWith("$") || isEscapedAt(source, 0)) return undefined;
+
+  const delimiterLength = delimiterLengthAt(source, 0);
+  if (delimiterLength === 2 && source[2] === "$") return undefined;
+  const closingIndex = findClosingDelimiter(source, 0, delimiterLength);
+  if (closingIndex === undefined) return undefined;
+
+  const text = source.slice(delimiterLength, closingIndex).trim();
+  if (text === "") return undefined;
+  return {
+    type: "inlineKatex",
+    raw: source.slice(0, closingIndex + delimiterLength),
+    text,
+    displayMode: delimiterLength === 2
+  };
+}
+
+function tokenizeEscapedMathAtStart(source: string): Tokens.Generic | undefined {
+  if (!source.startsWith("\\$")) return undefined;
+
+  const end = escapedDollarFormEnd(source);
+  return {
+    type: "escapedKatex",
+    raw: source.slice(0, end),
+    text: source.slice(1, end)
+  };
+}
+
+// Treat an escaped dollar opener as literal syntax. A clearly paired escaped
+// construct is consumed whole; otherwise only the opener is consumed so an
+// unmatched escape cannot steal delimiters from valid math farther right.
+mathExtension.extensions?.push({
+  name: "escapedKatex",
+  level: "inline",
+  start(source) {
+    const index = source.indexOf("\\$");
+    return index === -1 ? undefined : index;
+  },
+  tokenizer(source) {
+    return tokenizeEscapedMathAtStart(source);
+  },
+  renderer(token) {
+    return escapeHtml(String(token.text ?? ""));
+  }
+});
+
+// marked-katex-extension also recognizes double-dollar formulas as inline
+// math and single-dollar formulas as blocks. Own the inline scanner so escaped
+// dollar forms and literal empty pairs cannot cross-pair with later formulas.
+// Keep one dollar inline, accept any closed non-empty same-line double dollars
+// as display math, and retain line-isolated display blocks without broadening
+// the sanitizer lanes below.
 for (const extension of mathExtension.extensions ?? []) {
   if (extension.name === "inlineKatex" && "tokenizer" in extension) {
-    const tokenize = extension.tokenizer;
-    extension.tokenizer = function (source, tokens) {
-      const token = tokenize.call(this, source, tokens);
-      return token?.displayMode === true ? undefined : token;
+    extension.start = findMathStart;
+    extension.tokenizer = function (source) {
+      return tokenizeMathAtStart(source);
     };
   }
   if (extension.name === "blockKatex" && "tokenizer" in extension) {
@@ -245,7 +417,10 @@ for (const extension of mathExtension.extensions ?? []) {
     };
     extension.tokenizer = function (source, tokens) {
       const token = tokenize.call(this, source, tokens);
-      return token?.displayMode === true ? token : undefined;
+      return token?.displayMode === true &&
+        String(token.text ?? "").trim() !== ""
+        ? token
+        : undefined;
     };
   }
   if (
