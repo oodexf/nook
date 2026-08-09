@@ -26,3 +26,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 修复同一行数学公式渲染
+
+**Date**: 2026-08-10
+**Task**: 修复同一行数学公式渲染
+**Branch**: `uifix`
+
+### Summary
+
+支持同一行闭合 92277...92277 展示公式和中文标点相邻的行内公式；修复转义/空分隔符跨配对问题；补充用户完整公式语料与安全回归测试，前端 358 项测试、类型检查、lint 和构建通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `86b083a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
