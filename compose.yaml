@@ -1,7 +1,7 @@
 services:
   chat:
     build: .
-    image: minimal-ai-chat:local
+    image: nook:local
     restart: unless-stopped
     env_file:
       - .env

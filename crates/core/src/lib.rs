@@ -1,4 +1,4 @@
-//! Domain entities and contracts for Minimal AI Chat.
+//! Domain entities and contracts for `NooK` (栖语).
 
 pub mod conversation;
 pub mod generation;
@@ -7,7 +7,7 @@ pub mod provider;
 pub mod repository;
 
 /// Human-readable application name shared across backend boundaries.
-pub const APP_NAME: &str = "Minimal AI Chat";
+pub const APP_NAME: &str = "NooK";
 
 #[cfg(test)]
 mod tests {
@@ -15,6 +15,6 @@ mod tests {
 
     #[test]
     fn application_name_is_stable() {
-        assert_eq!(APP_NAME, "Minimal AI Chat");
+        assert_eq!(APP_NAME, "NooK");
     }
 }

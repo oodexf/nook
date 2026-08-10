@@ -1,6 +1,7 @@
 <script lang="ts">
+  import CheckIcon from "../components/CheckIcon.svelte";
+  import NookLogo from "../components/NookLogo.svelte";
   import PrimaryButton from "../components/PrimaryButton.svelte";
-  import SparkIcon from "../components/SparkIcon.svelte";
 
   type Props = {
     variant: "checking" | "form";
@@ -42,16 +43,15 @@
 
 {#if variant === "checking"}
   <div class="checking" role="status">
-    <span class="brand-mark"><SparkIcon size={24} /></span>
+    <span class="brand-mark"><NookLogo size={72} /></span>
     <span class="checking-spinner" aria-hidden="true"></span>
     <p class="checking-text">正在验证会话…</p>
   </div>
 {:else}
   <div class="auth-panel" aria-labelledby="auth-title">
-    <span class="brand-mark"><SparkIcon size={24} /></span>
-    <p class="eyebrow">Private workspace</p>
+    <span class="brand-mark"><NookLogo size={72} /></span>
+    <p class="eyebrow">栖语</p>
     <h1 id="auth-title">欢迎回来</h1>
-    <p class="summary">输入部署时配置的访问令牌，进入你的对话空间。</p>
 
     <form onsubmit={handleSubmit}>
       <label class="field-label" for="access-token">访问令牌</label>
@@ -68,10 +68,16 @@
 
       <label class="remember">
         <input
+          class="remember-input"
           type="checkbox"
           bind:checked={rememberMe}
           disabled={isSubmitting}
         />
+        <span class="remember-box" aria-hidden="true">
+          {#if rememberMe}
+            <CheckIcon size={13} />
+          {/if}
+        </span>
         <span>记住我 30 天</span>
       </label>
 
@@ -87,21 +93,16 @@
         {isSubmitting ? "正在验证…" : "继续"}
       </PrimaryButton>
     </form>
-
-    <p class="privacy-note">令牌仅用于本次登录交换，不会保存在浏览器中。</p>
   </div>
 {/if}
 
 <style>
   .brand-mark {
     display: grid;
-    width: 56px;
-    height: 56px;
+    width: 72px;
+    height: 72px;
     margin: 0 auto var(--space-7);
     place-items: center;
-    border-radius: var(--radius-md);
-    color: var(--accent-contrast);
-    background: var(--text);
   }
 
   .checking {
@@ -157,14 +158,6 @@
     line-height: 1.1;
   }
 
-  .summary {
-    max-width: 26rem;
-    margin: var(--space-5) auto 0;
-    color: var(--muted);
-    font-size: 1rem;
-    line-height: 1.7;
-  }
-
   form {
     display: grid;
     margin-top: var(--space-7);
@@ -189,11 +182,8 @@
     transition: border-color var(--motion-fast);
   }
 
-  input[type="password"]:focus {
-    border-color: var(--accent);
-  }
-
   .remember {
+    position: relative;
     display: inline-flex;
     min-height: var(--touch-target);
     margin-top: var(--space-4);
@@ -201,12 +191,49 @@
     gap: var(--space-3);
     color: var(--muted);
     font-size: 0.9rem;
+    cursor: pointer;
   }
 
-  .remember input {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent);
+  /* Native input stays in the DOM for semantics/focus but is invisible; */
+  /* the visible control is the custom box with a Lucide check mark. */
+  .remember-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    overflow: hidden;
+  }
+
+  .remember-box {
+    display: grid;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    place-items: center;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--accent-contrast);
+    background: var(--surface);
+    transition:
+      border-color var(--motion-fast),
+      background-color var(--motion-fast);
+  }
+
+  .remember-input:checked + .remember-box {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .remember-input:focus-visible + .remember-box {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .remember-input:disabled ~ span {
+    opacity: 0.6;
   }
 
   .form-error {
@@ -220,10 +247,4 @@
     margin-top: var(--space-4);
   }
 
-  .privacy-note {
-    margin: var(--space-5) 0 0;
-    color: var(--muted);
-    font-size: 0.8rem;
-    line-height: 1.5;
-  }
 </style>

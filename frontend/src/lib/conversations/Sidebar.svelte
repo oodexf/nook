@@ -11,6 +11,7 @@
   import FolderIcon from "../components/FolderIcon.svelte";
   import LogOutIcon from "../components/LogOutIcon.svelte";
   import MoreHorizontalIcon from "../components/MoreHorizontalIcon.svelte";
+  import NookLogo from "../components/NookLogo.svelte";
   import PencilIcon from "../components/PencilIcon.svelte";
   import PinIcon from "../components/PinIcon.svelte";
   import SearchIcon from "../components/SearchIcon.svelte";
@@ -315,7 +316,10 @@
 
 <div class="sidebar" bind:this={root}>
   <div class="sidebar-top">
-    <span class="brand">Minimal AI Chat</span>
+    <span class="brand">
+      <NookLogo size={26} />
+      <span class="brand-name">栖语 <span class="brand-name-en">NooK</span></span>
+    </span>
     <div class="top-actions">
       <button
         type="button"
@@ -593,12 +597,30 @@
   }
 
   .brand {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2);
+    overflow: hidden;
+  }
+
+  .brand :global(svg) {
+    flex-shrink: 0;
+  }
+
+  .brand-name {
     overflow: hidden;
     font-size: 0.95rem;
     font-weight: 750;
     letter-spacing: -0.01em;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .brand-name-en {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 650;
   }
 
   /* Settings sits to the left of the collapse/close control (08-08). */

@@ -24,4 +24,4 @@ build: frontend-build
 	cargo build --workspace --release
 
 docker-build:
-	docker build -t minimal-ai-chat:local .
+	docker build -t nook:local .

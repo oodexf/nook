@@ -28,7 +28,7 @@
 </script>
 
 <svelte:head>
-  <title>Minimal AI Chat</title>
+  <title>栖语 NooK</title>
 </svelte:head>
 
 {#if session.status.kind === "authenticated"}

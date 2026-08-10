@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SparkIcon from "../components/SparkIcon.svelte";
+  import NookLogo from "../components/NookLogo.svelte";
   import DraftModelSelector from "../models/DraftModelSelector.svelte";
   import type { ModelStore } from "../models/model-store.svelte";
 
@@ -12,7 +12,7 @@
 </script>
 
 <div class="empty">
-  <span class="brand-mark"><SparkIcon size={22} /></span>
+  <span class="brand-mark"><NookLogo size={52} variant="tile" /></span>
   <h2>开始一个新对话</h2>
   <p>从左侧选择历史对话继续查看,或为下方的新对话选择一个模型。</p>
   <DraftModelSelector store={modelStore} {csrfToken} />
@@ -33,9 +33,6 @@
     height: 52px;
     margin-bottom: var(--space-4);
     place-items: center;
-    border-radius: var(--radius-md);
-    color: var(--accent-contrast);
-    background: var(--text);
   }
 
   h2 {

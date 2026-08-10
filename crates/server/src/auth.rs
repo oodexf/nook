@@ -25,6 +25,9 @@ use crate::{
 };
 
 const COOKIE_NAME: &str = "chat_session";
+// These byte strings are cryptographic protocol identifiers, not display
+// branding. Keep them stable across product renames so upgrades do not
+// invalidate every existing session and CSRF token.
 const SESSION_CONTEXT: &[u8] = b"minimal-ai-chat/session/v1";
 const CSRF_CONTEXT: &[u8] = b"minimal-ai-chat/csrf/v1:";
 const BROWSER_SESSION_SECONDS: u64 = 24 * 60 * 60;

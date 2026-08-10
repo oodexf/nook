@@ -1,8 +1,12 @@
-# Minimal AI Chat
+# 栖语 NooK
 
-Minimal AI Chat is a lightweight, single-instance, self-hosted AI chat service.
+栖语 NooK is a lightweight, single-instance, self-hosted AI chat service.
 A Svelte browser client and Rust/Axum API ship in one container; conversations
 are stored in SQLite under `/data`, and provider credentials remain server-side.
+
+<p align="center">
+  <img src="nook-icon.svg" alt="NooK app icon" width="128" />
+</p>
 
 ## Features
 
@@ -24,7 +28,8 @@ cp .env.example .env
 
 | Variable | Required | Purpose |
 |---|---:|---|
-| `APP_ACCESS_TOKEN` | yes | Shared instance token; use at least 32 random bytes |
+| `APP_ACCESS_TOKEN` | yes | Shared instance token; use at least 32 random bytes in production |
+| `APP_ALLOW_INSECURE_TEST_TOKEN` | no | Local testing only; explicitly allows a short shared token such as `test` (default `false`) |
 | `APP_ORIGIN` | yes | Exact external origin used for cookie and CSRF checks |
 | `AI_BASE_URL` | yes | Provider origin, optionally ending in `/v1` |
 | `AI_API_KEY` | yes | Server-side provider credential |
@@ -109,11 +114,12 @@ Restore drill:
 4. Start the container and wait for readiness.
 5. Sign in and open an existing conversation.
 
-A convenient volume restore uses a temporary container matching your Compose
-volume name:
+A convenient volume restore uses a temporary container. Compose prefixes the
+volume with its project name, which defaults to the checkout directory; replace
+`<project>` below with the value shown by `docker volume ls`:
 
 ```bash
-docker run --rm -v minimal-ai-chat_chat-data:/data \
+docker run --rm -v <project>_chat-data:/data \
   -v "$PWD/backups:/backup:ro" alpine sh -c \
   'rm -f /data/chat.db /data/chat.db-wal /data/chat.db-shm && cp /backup/chat.db /data/chat.db && chown 10001:10001 /data/chat.db'
 ```

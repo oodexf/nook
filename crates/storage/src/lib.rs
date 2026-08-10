@@ -1,4 +1,4 @@
-//! SQLite-backed repositories for Minimal AI Chat.
+//! SQLite-backed repositories for `NooK` (栖语).
 
 mod connection;
 mod conversation_repository;
