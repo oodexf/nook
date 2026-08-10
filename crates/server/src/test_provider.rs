@@ -17,6 +17,9 @@ pub(crate) struct FakeResponse {
     pub(crate) body: String,
     pub(crate) content_type: &'static str,
     pub(crate) delay: Duration,
+    /// Optional mid-body gap: write the first `split` body bytes, sleep,
+    /// then write the rest. Used to exercise idle-timeout behavior.
+    pub(crate) body_gap: Option<(usize, Duration)>,
 }
 
 impl FakeResponse {
@@ -26,6 +29,7 @@ impl FakeResponse {
             body: body.into(),
             content_type: "application/json",
             delay: Duration::ZERO,
+            body_gap: None,
         }
     }
 
@@ -35,11 +39,17 @@ impl FakeResponse {
             body: body.into(),
             content_type: "text/event-stream",
             delay: Duration::ZERO,
+            body_gap: None,
         }
     }
 
     pub(crate) fn delayed(mut self, delay: Duration) -> Self {
         self.delay = delay;
+        self
+    }
+
+    pub(crate) fn with_body_gap(mut self, split: usize, delay: Duration) -> Self {
+        self.body_gap = Some((split, delay));
         self
     }
 }
@@ -109,15 +119,27 @@ impl FakeProviderServer {
                     503 => "Service Unavailable",
                     _ => "Test Status",
                 };
-                let wire = format!(
-                    "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                let headers = format!(
+                    "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     response.status,
                     reason,
                     response.content_type,
                     response.body.len(),
-                    response.body
                 );
-                if socket.write_all(wire.as_bytes()).await.is_err() {
+                if socket.write_all(headers.as_bytes()).await.is_err() {
+                    return;
+                }
+                if let Some((split, gap)) = response.body_gap {
+                    let split = split.min(response.body.len());
+                    let (first, rest) = response.body.split_at(split);
+                    if socket.write_all(first.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    tokio::time::sleep(gap).await;
+                    if socket.write_all(rest.as_bytes()).await.is_err() {
+                        return;
+                    }
+                } else if socket.write_all(response.body.as_bytes()).await.is_err() {
                     return;
                 }
             }

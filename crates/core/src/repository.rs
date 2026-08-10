@@ -56,6 +56,9 @@ pub struct GenerationFinalization {
     pub generation_status: GenerationStatus,
     pub message_status: MessageStatus,
     pub content: String,
+    /// Accumulated reasoning to persist with the assistant message; `None`
+    /// when the provider emitted no reasoning content.
+    pub reasoning: Option<String>,
     pub error_code: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,

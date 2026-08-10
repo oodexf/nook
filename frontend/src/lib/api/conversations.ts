@@ -38,6 +38,8 @@ export type ChatMessage = {
   clientMessageId: string | null;
   role: MessageRole;
   content: string;
+  /** Persisted thinking chain; null for user messages and non-reasoning models. */
+  reasoning: string | null;
   status: MessageStatus;
   model: string | null;
   errorCode: string | null;
@@ -131,6 +133,8 @@ export function decodeConversationSummary(
 
 export function decodeChatMessage(value: unknown): ChatMessage | null {
   if (!isRecord(value)) return null;
+  // `reasoning` may be absent on payloads from older servers; normalize to null.
+  const reasoning = value.reasoning;
   if (
     isBoundedString(value.id, MAX_ID_LENGTH) &&
     isBoundedString(value.conversation_id, MAX_ID_LENGTH) &&
@@ -138,6 +142,10 @@ export function decodeChatMessage(value: unknown): ChatMessage | null {
     isMessageRole(value.role) &&
     typeof value.content === "string" &&
     value.content.length <= MAX_CONTENT_LENGTH &&
+    (reasoning === undefined ||
+      reasoning === null ||
+      (typeof reasoning === "string" &&
+        reasoning.length <= MAX_CONTENT_LENGTH)) &&
     isMessageStatus(value.status) &&
     isNullableBoundedString(value.model, MAX_MODEL_LENGTH) &&
     isNullableBoundedString(value.error_code, MAX_ID_LENGTH) &&
@@ -150,6 +158,7 @@ export function decodeChatMessage(value: unknown): ChatMessage | null {
       clientMessageId: value.client_message_id,
       role: value.role,
       content: value.content,
+      reasoning: reasoning ?? null,
       status: value.status,
       model: value.model,
       errorCode: value.error_code,

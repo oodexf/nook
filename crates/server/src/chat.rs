@@ -57,6 +57,9 @@ enum PublicStreamEvent {
     Delta {
         text: String,
     },
+    ReasoningDelta {
+        text: String,
+    },
     Done {
         finish_reason: String,
         usage: Option<PublicUsage>,
@@ -185,6 +188,7 @@ pub async fn retry(
         client_message_id: None,
         role: MessageRole::Assistant,
         content: String::new(),
+        reasoning: None,
         status: MessageStatus::Streaming,
         model: Some(existing.conversation.model.clone()),
         error_code: None,
@@ -270,6 +274,7 @@ fn build_message_setup(
         client_message_id: Some(request.client_message_id.clone()),
         role: MessageRole::User,
         content: request.content.clone(),
+        reasoning: None,
         status: MessageStatus::Completed,
         model: None,
         error_code: None,
@@ -282,6 +287,7 @@ fn build_message_setup(
         client_message_id: None,
         role: MessageRole::Assistant,
         content: String::new(),
+        reasoning: None,
         status: MessageStatus::Streaming,
         model: Some(model.clone()),
         error_code: None,
@@ -426,6 +432,7 @@ async fn stream_existing_generation(
                 &state,
                 &result.generation,
                 String::new(),
+                String::new(),
                 Terminal::Error(error),
                 TokenUsage::default(),
             )
@@ -446,10 +453,12 @@ async fn stream_existing_generation(
     let generation = result.generation;
     let stream_state = state.clone();
     let accumulated = Arc::new(Mutex::new(String::new()));
+    let accumulated_reasoning = Arc::new(Mutex::new(String::new()));
     let drop_finalizer = Arc::new(Mutex::new(Some(DropFinalizer {
         state: state.clone(),
         generation: generation.clone(),
         accumulated: Arc::clone(&accumulated),
+        accumulated_reasoning: Arc::clone(&accumulated_reasoning),
         armed: true,
     })));
     let stream = async_stream::stream! {
@@ -467,6 +476,10 @@ async fn stream_existing_generation(
                     Some(Ok(ChatStreamEvent::Delta(text))) => {
                         accumulated.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push_str(&text);
                         yield Ok(encode_event(&PublicStreamEvent::Delta { text }));
+                    }
+                    Some(Ok(ChatStreamEvent::ReasoningDelta(text))) => {
+                        accumulated_reasoning.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push_str(&text);
+                        yield Ok(encode_event(&PublicStreamEvent::ReasoningDelta { text }));
                     }
                     Some(Ok(ChatStreamEvent::Done { finish_reason, usage: final_usage })) => {
                         usage = final_usage;
@@ -493,7 +506,11 @@ async fn stream_existing_generation(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        let terminal_event = match finalize(&stream_state, &generation, final_content, terminal, usage).await {
+        let final_reasoning = accumulated_reasoning
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let terminal_event = match finalize(&stream_state, &generation, final_content, final_reasoning, terminal, usage).await {
             Ok(event) => with_request_id(event, &request_id_text),
             Err(_) => PublicStreamEvent::Error {
                 code: "storage_unavailable",
@@ -534,19 +551,30 @@ async fn replay_terminal(
     else {
         return StreamApiError::Internal.into_response(request_id);
     };
-    let events = vec![
-        PublicStreamEvent::Meta {
-            conversation_id: result.generation.conversation_id,
-            user_message_id: result.user_message_id,
-            assistant_message_id: result.generation.assistant_message_id,
-            generation_id: result.generation.id,
-            model: result.generation.model,
-        },
-        PublicStreamEvent::Delta {
-            text: message.content.clone(),
-        },
-        terminal_from_persisted(message.status, message.error_code.as_deref(), request_id),
-    ];
+    let mut events = vec![PublicStreamEvent::Meta {
+        conversation_id: result.generation.conversation_id,
+        user_message_id: result.user_message_id,
+        assistant_message_id: result.generation.assistant_message_id,
+        generation_id: result.generation.id,
+        model: result.generation.model,
+    }];
+    if let Some(reasoning) = message
+        .reasoning
+        .as_ref()
+        .filter(|reasoning| !reasoning.is_empty())
+    {
+        events.push(PublicStreamEvent::ReasoningDelta {
+            text: reasoning.clone(),
+        });
+    }
+    events.push(PublicStreamEvent::Delta {
+        text: message.content.clone(),
+    });
+    events.push(terminal_from_persisted(
+        message.status,
+        message.error_code.as_deref(),
+        request_id,
+    ));
     sse_response(futures_util::stream::iter(
         events.into_iter().map(|event| Ok(encode_event(&event))),
     ))
@@ -578,6 +606,7 @@ struct DropFinalizer {
     state: AppState,
     generation: Generation,
     accumulated: Arc<Mutex<String>>,
+    accumulated_reasoning: Arc<Mutex<String>>,
     armed: bool,
 }
 
@@ -593,11 +622,17 @@ impl Drop for DropFinalizer {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
+        let reasoning = self
+            .accumulated_reasoning
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         tokio::spawn(async move {
             let _ = finalize(
                 &state,
                 &generation,
                 content,
+                reasoning,
                 Terminal::Stopped,
                 TokenUsage::default(),
             )
@@ -617,6 +652,7 @@ async fn finalize(
     state: &AppState,
     generation: &Generation,
     content: String,
+    reasoning: String,
     terminal: Terminal,
     usage: TokenUsage,
 ) -> Result<PublicStreamEvent, RepositoryError> {
@@ -643,6 +679,7 @@ async fn finalize(
             generation_status,
             message_status,
             content,
+            reasoning: (!reasoning.is_empty()).then_some(reasoning),
             error_code: error_code.clone(),
             input_tokens,
             output_tokens,
@@ -729,6 +766,7 @@ fn encode_event(event: &PublicStreamEvent) -> Event {
     let name = match event {
         PublicStreamEvent::Meta { .. } => "meta",
         PublicStreamEvent::Delta { .. } => "delta",
+        PublicStreamEvent::ReasoningDelta { .. } => "reasoning_delta",
         PublicStreamEvent::Done { .. } => "done",
         PublicStreamEvent::Stopped { .. } => "stopped",
         PublicStreamEvent::Error { .. } => "error",
@@ -907,6 +945,7 @@ mod tests {
                 .then(|| format!("client-{id}")),
             role,
             content: id.to_owned(),
+            reasoning: None,
             status: MessageStatus::Completed,
             model: (role == chat_core::conversation::MessageRole::Assistant)
                 .then(|| "model".to_owned()),
@@ -938,6 +977,17 @@ mod tests {
         let debug = format!("{encoded:?}");
         assert!(!debug.contains("hello\n😀"));
         assert!(debug.contains("delta"));
+    }
+
+    #[test]
+    fn reasoning_delta_encodes_with_reasoning_delta_event_name() {
+        let event = PublicStreamEvent::ReasoningDelta {
+            text: "thinking".to_owned(),
+        };
+        let encoded = encode_event(&event);
+        let debug = format!("{encoded:?}");
+        assert!(debug.contains("reasoning_delta"));
+        assert!(debug.contains("thinking"));
     }
 
     #[test]

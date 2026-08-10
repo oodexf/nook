@@ -172,13 +172,14 @@ pub(crate) fn finalize_generation(
     }
     let message_changed = transaction.execute(
         "UPDATE messages
-         SET content = ?1, status = ?2, error_code = ?3, finished_at = ?4
-         WHERE id = ?5 AND status = 'streaming'",
+         SET content = ?1, status = ?2, error_code = ?3, finished_at = ?4, reasoning = ?5
+         WHERE id = ?6 AND status = 'streaming'",
         params![
             finalization.content,
             finalization.message_status.as_str(),
             finalization.error_code,
             finalization.finished_at,
+            finalization.reasoning,
             finalization.assistant_message_id,
         ],
     )?;
@@ -220,8 +221,8 @@ fn insert_message(transaction: &Transaction<'_>, message: &Message) -> Result<()
     transaction.execute(
         "INSERT INTO messages
          (id, conversation_id, client_message_id, role, content, status, model,
-          error_code, created_at, finished_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+          error_code, created_at, finished_at, reasoning)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             message.id,
             message.conversation_id,
@@ -233,6 +234,7 @@ fn insert_message(transaction: &Transaction<'_>, message: &Message) -> Result<()
             message.error_code,
             message.created_at,
             message.finished_at,
+            message.reasoning,
         ],
     )?;
     Ok(())

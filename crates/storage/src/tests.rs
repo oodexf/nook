@@ -18,6 +18,58 @@ async fn database() -> (TempDir, SqliteStorage) {
     (directory, storage)
 }
 
+fn user_message(
+    id: &str,
+    conversation_id: &str,
+    client_message_id: &str,
+    content: &str,
+) -> Message {
+    Message {
+        id: id.to_owned(),
+        conversation_id: conversation_id.to_owned(),
+        client_message_id: Some(client_message_id.to_owned()),
+        role: MessageRole::User,
+        content: content.to_owned(),
+        reasoning: None,
+        status: MessageStatus::Completed,
+        model: None,
+        error_code: None,
+        created_at: 100,
+        finished_at: Some(100),
+    }
+}
+
+fn assistant_placeholder(id: &str, conversation_id: &str) -> Message {
+    Message {
+        id: id.to_owned(),
+        conversation_id: conversation_id.to_owned(),
+        client_message_id: None,
+        role: MessageRole::Assistant,
+        content: String::new(),
+        reasoning: None,
+        status: MessageStatus::Streaming,
+        model: Some("test-model".to_owned()),
+        error_code: None,
+        created_at: 100,
+        finished_at: None,
+    }
+}
+
+fn streaming_generation(id: &str, conversation_id: &str, assistant_message_id: &str) -> Generation {
+    Generation {
+        id: id.to_owned(),
+        conversation_id: conversation_id.to_owned(),
+        assistant_message_id: assistant_message_id.to_owned(),
+        provider: "provider".to_owned(),
+        model: "test-model".to_owned(),
+        status: GenerationStatus::Streaming,
+        input_tokens: None,
+        output_tokens: None,
+        started_at: 100,
+        finished_at: None,
+    }
+}
+
 fn raw(directory: &TempDir) -> Connection {
     connection::open(&directory.path().join("chat.db")).expect("database should open")
 }
@@ -44,7 +96,7 @@ async fn fresh_and_repeated_migrations_are_safe() {
             row.get(0)
         })
         .expect("migration count should be available");
-    assert_eq!(migration_count, 1);
+    assert_eq!(migration_count, 2);
 }
 
 #[tokio::test]
@@ -215,48 +267,12 @@ async fn atomic_first_message_is_idempotent_and_finalizes_once() {
 
     let (directory, storage) = database().await;
     let conversation_id = "c1".to_owned();
-    let user = Message {
-        id: "u1".to_owned(),
-        conversation_id: conversation_id.clone(),
-        client_message_id: Some("global-client-id".to_owned()),
-        role: MessageRole::User,
-        content: "private input".to_owned(),
-        status: MessageStatus::Completed,
-        model: None,
-        error_code: None,
-        created_at: 100,
-        finished_at: Some(100),
-    };
-    let assistant = Message {
-        id: "a1".to_owned(),
-        conversation_id: conversation_id.clone(),
-        client_message_id: None,
-        role: MessageRole::Assistant,
-        content: String::new(),
-        status: MessageStatus::Streaming,
-        model: Some("test-model".to_owned()),
-        error_code: None,
-        created_at: 100,
-        finished_at: None,
-    };
-    let generation = Generation {
-        id: "g1".to_owned(),
-        conversation_id: conversation_id.clone(),
-        assistant_message_id: assistant.id.clone(),
-        provider: "provider".to_owned(),
-        model: "test-model".to_owned(),
-        status: GenerationStatus::Streaming,
-        input_tokens: None,
-        output_tokens: None,
-        started_at: 100,
-        finished_at: None,
-    };
     let setup = NewMessageGeneration {
         conversation: Some(conversation(&conversation_id, 100)),
         conversation_id,
-        user_message: user,
-        assistant_message: assistant,
-        generation,
+        user_message: user_message("u1", "c1", "global-client-id", "private input"),
+        assistant_message: assistant_placeholder("a1", "c1"),
+        generation: streaming_generation("g1", "c1", "a1"),
     };
     assert!(matches!(
         storage
@@ -279,6 +295,7 @@ async fn atomic_first_message_is_idempotent_and_finalizes_once() {
         generation_status: GenerationStatus::Stopped,
         message_status: MessageStatus::Stopped,
         content: "partial output".to_owned(),
+        reasoning: None,
         error_code: None,
         input_tokens: Some(2),
         output_tokens: Some(1),
@@ -313,6 +330,73 @@ async fn atomic_first_message_is_idempotent_and_finalizes_once() {
         .query_row("SELECT COUNT(*) FROM generations", [], |row| row.get(0))
         .expect("count should load");
     assert_eq!(generation_count, 1);
+}
+
+#[tokio::test]
+async fn assistant_reasoning_persists_through_finalize_and_read() {
+    use chat_core::repository::{GenerationFinalization, GenerationSetup, NewMessageGeneration};
+
+    let (directory, storage) = database().await;
+    let conversation_id = "c1".to_owned();
+    assert!(matches!(
+        storage
+            .create_message_generation(NewMessageGeneration {
+                conversation: Some(conversation(&conversation_id, 100)),
+                conversation_id,
+                user_message: user_message("u1", "c1", "client-reasoning", "prompt"),
+                assistant_message: assistant_placeholder("a1", "c1"),
+                generation: streaming_generation("g1", "c1", "a1"),
+            })
+            .await
+            .expect("setup should create"),
+        GenerationSetup::Created(_)
+    ));
+    assert!(
+        storage
+            .finalize_generation(GenerationFinalization {
+                generation_id: "g1".to_owned(),
+                assistant_message_id: "a1".to_owned(),
+                generation_status: GenerationStatus::Completed,
+                message_status: MessageStatus::Completed,
+                content: "answer".to_owned(),
+                reasoning: Some("full thinking chain".to_owned()),
+                error_code: None,
+                input_tokens: None,
+                output_tokens: None,
+                finished_at: 200,
+            })
+            .await
+            .expect("finalize should write")
+    );
+    let detail = storage
+        .get("c1".to_owned())
+        .await
+        .expect("conversation should load");
+    let persisted_assistant = detail
+        .messages
+        .iter()
+        .find(|message| message.role == MessageRole::Assistant)
+        .expect("assistant should be present");
+    assert_eq!(
+        persisted_assistant.reasoning.as_deref(),
+        Some("full thinking chain")
+    );
+    let persisted_user = detail
+        .messages
+        .iter()
+        .find(|message| message.role == MessageRole::User)
+        .expect("user should be present");
+    assert_eq!(persisted_user.reasoning, None);
+
+    // The column CHECK keeps reasoning assistant-only at the SQL level.
+    raw(&directory)
+        .execute(
+            "INSERT INTO messages
+             (id, conversation_id, client_message_id, role, content, status, model, error_code, created_at, finished_at, reasoning)
+             VALUES ('m9', 'c1', 'client-9', 'user', 'x', 'completed', NULL, NULL, 300, 300, 'not allowed')",
+            [],
+        )
+        .expect_err("user reasoning should violate the CHECK constraint");
 }
 
 #[tokio::test]
@@ -370,6 +454,7 @@ async fn active_generation_conflict_rolls_back_assistant_placeholder() {
         client_message_id: None,
         role: MessageRole::Assistant,
         content: String::new(),
+        reasoning: None,
         status: MessageStatus::Streaming,
         model: Some("test-model".to_owned()),
         error_code: None,

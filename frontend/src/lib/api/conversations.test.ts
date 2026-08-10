@@ -83,6 +83,7 @@ describe("decodeChatMessage", () => {
       clientMessageId: "client-1",
       role: "assistant",
       content: "你好",
+      reasoning: null,
       status: "completed",
       model: "test-model",
       errorCode: null,
@@ -104,12 +105,22 @@ describe("decodeChatMessage", () => {
     ).not.toBeNull();
   });
 
+  it("decodes persisted reasoning and tolerates a missing field", () => {
+    expect(
+      decodeChatMessage(messagePayload({ reasoning: "完整思维链" }))
+    ).toMatchObject({ reasoning: "完整思维链" });
+    // Payloads from older servers carry no reasoning key at all.
+    const legacy = messagePayload();
+    expect(decodeChatMessage(legacy)).toMatchObject({ reasoning: null });
+  });
+
   it.each([
     ["unknown role", { role: "system" }],
     ["unknown status", { status: "pending" }],
     ["non-string error_code", { error_code: 7 }],
     ["non-integer finished_at", { finished_at: "soon" }],
-    ["missing content", { content: undefined }]
+    ["missing content", { content: undefined }],
+    ["non-string reasoning", { reasoning: 42 }]
   ])("rejects %s", (_label, overrides) => {
     expect(decodeChatMessage(messagePayload(overrides))).toBeNull();
   });

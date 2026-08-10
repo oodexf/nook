@@ -44,6 +44,8 @@ pub struct TokenUsage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChatStreamEvent {
     Delta(String),
+    /// Reasoning (thinking-chain) content streamed before the answer.
+    ReasoningDelta(String),
     Done {
         finish_reason: String,
         usage: TokenUsage,
@@ -191,6 +193,7 @@ mod tests {
             client_message_id: (role == MessageRole::User).then(|| format!("client-{id}")),
             role,
             content: content.to_owned(),
+            reasoning: None,
             status: MessageStatus::Completed,
             model: (role == MessageRole::Assistant).then(|| "model".to_owned()),
             error_code: None,

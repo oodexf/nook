@@ -334,4 +334,41 @@ describe("chat SSE decoder", () => {
     const decoder = createChatEventDecoder();
     expect(decoder.end()).toEqual([]);
   });
+
+  it("decodes reasoning_delta events in stream order", () => {
+    const events = decodeAll([
+      metaBlock(),
+      block("reasoning_delta", { event: "reasoning_delta", text: "先分析" }),
+      block("reasoning_delta", { event: "reasoning_delta", text: "问题" }),
+      block("delta", { event: "delta", text: "回答" }),
+      block("done", { event: "done", finish_reason: "stop", usage: null })
+    ]);
+    expect(events.map((event) => event.kind)).toEqual([
+      "meta",
+      "reasoning-delta",
+      "reasoning-delta",
+      "delta",
+      "done"
+    ]);
+    const reasoning = events[1];
+    if (reasoning.kind !== "reasoning-delta") {
+      throw new Error("expected reasoning-delta");
+    }
+    expect(reasoning.text).toBe("先分析");
+  });
+
+  it("rejects oversized reasoning_delta payloads", () => {
+    const decoder = createChatEventDecoder();
+    decoder.push(bytes(metaBlock()));
+    expect(() =>
+      decoder.push(
+        bytes(
+          block("reasoning_delta", {
+            event: "reasoning_delta",
+            text: "x".repeat(200_001)
+          })
+        )
+      )
+    ).toThrowError(expect.objectContaining({ failure: "invalid-event" }));
+  });
 });

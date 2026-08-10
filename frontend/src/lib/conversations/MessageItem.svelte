@@ -1,17 +1,23 @@
 <script lang="ts">
-  import { copyText } from "../clipboard/copy-text";
   import type { ChatMessage } from "../api/conversations";
+  import CopyButton from "../components/CopyButton.svelte";
+  import ReasoningBlock from "../components/ReasoningBlock.svelte";
+  import RefreshIcon from "../components/RefreshIcon.svelte";
   import MarkdownContent from "../markdown/MarkdownContent.svelte";
+  import MessageLane from "./MessageLane.svelte";
 
   /**
-   * One persisted message (Phase F-04/F-05).
+   * One persisted message (Phase F-04/F-05, lanes in Phase I-01).
    *
+   * - Role lanes come from the shared `MessageLane`: user on the right,
+   *   assistant on the left, with status/copy/retry attached to the
+   *   owning message.
    * - Assistant content renders through the single sanitized
    *   `MarkdownContent` path; the message list only receives final server
    *   content, so each message parses at most once per content change.
    * - User content is always plain text via normal Svelte escaping.
-   * - The copy action reports success/failure through a polite status
-   *   region, not a toast.
+   * - The copy action is the shared compact icon control; feedback is
+   *   announced through its polite status region, not a toast.
    */
   type Props = {
     message: ChatMessage;
@@ -28,28 +34,7 @@
     onRetry = null
   }: Props = $props();
 
-  const COPY_LABEL = "复制";
-  const FEEDBACK_MS = 1600;
-
-  type CopyStatus = "idle" | "copied" | "failed";
-  let copyStatus = $state<CopyStatus>("idle");
-  let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
-
   const roleLabel = $derived(message.role === "user" ? "你" : "助手");
-  const copyButtonLabel = $derived(
-    copyStatus === "copied"
-      ? "已复制"
-      : copyStatus === "failed"
-        ? "复制失败"
-        : COPY_LABEL
-  );
-  const copyAnnouncement = $derived(
-    copyStatus === "copied"
-      ? "消息内容已复制到剪贴板"
-      : copyStatus === "failed"
-        ? "复制失败，请手动选择文本复制"
-        : ""
-  );
 
   function statusLabel(status: ChatMessage["status"]): string {
     switch (status) {
@@ -69,23 +54,9 @@
   function formatTime(milliseconds: number): string {
     return new Date(milliseconds).toLocaleString();
   }
-
-  function handleCopy() {
-    if (feedbackTimer !== null) {
-      clearTimeout(feedbackTimer);
-      feedbackTimer = null;
-    }
-    void copyText(message.content).then((ok) => {
-      copyStatus = ok ? "copied" : "failed";
-      feedbackTimer = setTimeout(() => {
-        copyStatus = "idle";
-        feedbackTimer = null;
-      }, FEEDBACK_MS);
-    });
-  }
 </script>
 
-<article aria-label={roleLabel}>
+<MessageLane role={message.role} ariaLabel={roleLabel}>
   <header class="meta">
     <span class="role">{roleLabel}</span>
     {#if message.model !== null}
@@ -97,6 +68,15 @@
     <time class="time">{formatTime(message.createdAt)}</time>
   </header>
   {#if message.role === "assistant"}
+    {#if message.reasoning !== null && message.reasoning.length > 0}
+      <!-- Persisted thinking chain: collapsed by default in history. -->
+      <ReasoningBlock
+        reasoning={message.reasoning}
+        streaming={false}
+        contentStarted={true}
+        initiallyExpanded={false}
+      />
+    {/if}
     <MarkdownContent content={message.content} ariaLabel="助手消息内容" />
   {:else}
     <p class="content">{message.content}</p>
@@ -114,37 +94,30 @@
     <p class="stopped-note" role="status">已停止，以上内容已保留。</p>
   {/if}
   <div class="actions">
-    <button
-      type="button"
-      class="copy"
-      data-state={copyStatus}
-      aria-label={`复制${roleLabel}消息内容`}
-      onclick={handleCopy}
-    >
-      {copyButtonLabel}
-    </button>
+    <CopyButton
+      label={`复制${roleLabel}消息内容`}
+      copiedAnnouncement="消息内容已复制到剪贴板"
+      failedAnnouncement="复制失败，请手动选择文本复制"
+      getText={() => message.content}
+    />
     {#if retryable}
       <button
         type="button"
         class="retry"
         disabled={retryDisabled}
+        aria-label={message.status === "completed"
+          ? "重新生成助手消息"
+          : "重试助手消息"}
+        title={message.status === "completed" ? "重新生成" : "重试"}
         onclick={() => onRetry?.(message.id)}
       >
-        {message.status === "completed" ? "重新生成" : "重试"}
+        <RefreshIcon size={14} />
       </button>
     {/if}
-    <span class="visually-hidden" role="status" aria-live="polite">
-      {copyAnnouncement}
-    </span>
   </div>
-</article>
+</MessageLane>
 
 <style>
-  article {
-    display: grid;
-    gap: var(--space-2);
-  }
-
   .meta {
     display: flex;
     flex-wrap: wrap;
@@ -231,16 +204,17 @@
     gap: var(--space-2);
   }
 
-  .copy,
   .retry {
-    min-height: var(--touch-target);
-    padding: 0 var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    background: var(--surface);
-    font-size: 0.85rem;
-    font-weight: 650;
+    display: inline-flex;
+    width: var(--compact-action-size);
+    height: var(--compact-action-size);
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--muted);
+    background: transparent;
     transition:
       background-color var(--motion-fast),
       border-color var(--motion-fast),
@@ -248,24 +222,28 @@
       opacity var(--motion-fast);
   }
 
-  .copy:hover,
-  .retry:hover:not(:disabled) {
+  .retry:hover:not(:disabled),
+  .retry:focus-visible {
     border-color: var(--border-strong);
+    color: var(--text);
     background: var(--surface-muted);
-  }
-
-  .copy[data-state="copied"] {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    color: var(--accent);
-  }
-
-  .copy[data-state="failed"] {
-    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
-    color: var(--danger);
   }
 
   .retry:disabled {
     cursor: not-allowed;
     opacity: 0.55;
+  }
+
+  @media (any-pointer: coarse) {
+    .retry {
+      position: relative;
+    }
+
+    .retry::after {
+      position: absolute;
+      width: var(--touch-target);
+      height: var(--touch-target);
+      content: "";
+    }
   }
 </style>

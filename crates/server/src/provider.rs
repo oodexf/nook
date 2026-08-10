@@ -91,6 +91,10 @@ pub struct OpenAiProvider {
     models_url: Url,
     chat_url: Url,
     api_key: String,
+    /// Idle limit for the chat stream: applies to waiting for response
+    /// headers and to each gap between upstream chunks, never to total
+    /// stream duration, so long reasoning phases do not trip it.
+    idle_timeout: Duration,
 }
 
 impl OpenAiProvider {
@@ -100,7 +104,6 @@ impl OpenAiProvider {
         timeout: Duration,
     ) -> Result<Self, ProviderBuildError> {
         let client = Client::builder()
-            .timeout(timeout)
             .connect_timeout(timeout.min(Duration::from_secs(10)))
             .https_only(base_url.0.scheme() == "https")
             .build()
@@ -116,18 +119,24 @@ impl OpenAiProvider {
             models_url,
             chat_url,
             api_key,
+            idle_timeout: timeout,
         })
     }
 
     async fn chat_stream(&self, request: ChatRequest) -> Result<ChatStream, ChatProviderError> {
-        let response = self
-            .client
-            .post(self.chat_url.clone())
-            .bearer_auth(&self.api_key)
-            .json(&ProviderChatRequest::from(request))
-            .send()
-            .await
-            .map_err(|error| map_chat_transport_error(&error))?;
+        let response = match tokio::time::timeout(
+            self.idle_timeout,
+            self.client
+                .post(self.chat_url.clone())
+                .bearer_auth(&self.api_key)
+                .json(&ProviderChatRequest::from(request))
+                .send(),
+        )
+        .await
+        {
+            Ok(result) => result.map_err(|error| map_chat_transport_error(&error))?,
+            Err(_) => return Err(ChatProviderError::Timeout),
+        };
         if !response.status().is_success() {
             return Err(map_chat_status(response.status()));
         }
@@ -141,10 +150,16 @@ impl OpenAiProvider {
         }
 
         let mut bytes = response.bytes_stream();
+        let idle_timeout = self.idle_timeout;
         let stream = async_stream::stream! {
             let mut decoder = UpstreamSseDecoder::default();
             let mut terminal = false;
-            while let Some(next) = bytes.next().await {
+            loop {
+                let Ok(next) = tokio::time::timeout(idle_timeout, bytes.next()).await else {
+                    yield Err(ChatProviderError::Timeout);
+                    return;
+                };
+                let Some(next) = next else { break };
                 let chunk = match next {
                     Ok(chunk) => chunk,
                     Err(error) => {
@@ -180,6 +195,7 @@ impl OpenAiProvider {
             .client
             .get(self.models_url.clone())
             .bearer_auth(&self.api_key)
+            .timeout(self.idle_timeout)
             .send()
             .await
             .map_err(|error| map_transport_error(&error))?;
@@ -355,6 +371,19 @@ impl UpstreamSseDecoder {
             self.usage = Some(usage.into());
         }
         if let Some(choice) = chunk.choices.into_iter().next() {
+            // Reasoning first: providers stream thinking before answer
+            // content. Accept both wire spellings; concatenate in the rare
+            // case a single chunk carries both.
+            let mut reasoning = String::new();
+            if let Some(value) = choice.delta.reasoning_content {
+                reasoning.push_str(&value);
+            }
+            if let Some(value) = choice.delta.reasoning {
+                reasoning.push_str(&value);
+            }
+            if !reasoning.is_empty() {
+                output.push(ChatStreamEvent::ReasoningDelta(reasoning));
+            }
             if let Some(content) = choice.delta.content
                 && !content.is_empty()
             {
@@ -385,6 +414,8 @@ struct ProviderChoice {
 #[derive(Default, serde::Deserialize)]
 struct ProviderDelta {
     content: Option<String>,
+    reasoning_content: Option<String>,
+    reasoning: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -772,5 +803,142 @@ mod tests {
         let rendered = format!("{provider:?}");
         assert!(!rendered.contains("provider-key-secret-sentinel"));
         assert!(!rendered.contains("api.example.com"));
+    }
+
+    #[test]
+    fn upstream_decoder_maps_reasoning_content_before_delta() {
+        use chat_core::provider::ChatStreamEvent;
+        let mut decoder = super::UpstreamSseDecoder::default();
+        let events = decoder
+            .push(
+                b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\",\"content\":\"answer\"}}]}\n\n",
+            )
+            .expect("chunk should decode");
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], ChatStreamEvent::ReasoningDelta(text) if text == "thinking"));
+        assert!(matches!(&events[1], ChatStreamEvent::Delta(text) if text == "answer"));
+    }
+
+    #[test]
+    fn upstream_decoder_maps_reasoning_alias_and_concatenates_both_fields() {
+        use chat_core::provider::ChatStreamEvent;
+        let mut decoder = super::UpstreamSseDecoder::default();
+        let events = decoder
+            .push(b"data: {\"choices\":[{\"delta\":{\"reasoning\":\"chain\"}}]}\n\n")
+            .expect("alias chunk should decode");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ChatStreamEvent::ReasoningDelta(text) if text == "chain"));
+        let mut decoder = super::UpstreamSseDecoder::default();
+        let events = decoder
+            .push(
+                b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"a\",\"reasoning\":\"b\"}}]}\n\n",
+            )
+            .expect("dual-field chunk should decode");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ChatStreamEvent::ReasoningDelta(text) if text == "ab"));
+    }
+
+    #[test]
+    fn upstream_decoder_ignores_empty_reasoning() {
+        let mut decoder = super::UpstreamSseDecoder::default();
+        let events = decoder
+            .push(
+                b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"\",\"content\":\"x\"}}]}\n\n",
+            )
+            .expect("chunk should decode");
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(&events[0], chat_core::provider::ChatStreamEvent::Delta(text) if text == "x")
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_idle_timeout_fires_on_silent_gap_but_not_on_active_stream() {
+        use chat_core::provider::{ChatProvider, ChatProviderError, ChatRequest, ChatStreamEvent};
+        use futures_util::StreamExt;
+
+        let first = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\"}}]}\n\n";
+        let rest = "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+
+        // Gap longer than the idle timeout: first event arrives, then the
+        // silent gap trips ChatProviderError::Timeout.
+        let fake = FakeProviderServer::start(vec![
+            FakeResponse::sse(format!("{first}{rest}"))
+                .with_body_gap(first.len(), Duration::from_millis(200)),
+        ])
+        .await;
+        let provider = OpenAiProvider::new(
+            &ProviderBaseUrl::parse(fake.base_url()).expect("local base should normalize"),
+            "provider-key-sentinel".to_owned(),
+            Duration::from_millis(50),
+        )
+        .expect("provider should build");
+        let mut stream = provider
+            .chat(ChatRequest {
+                model: "model".to_owned(),
+                messages: Vec::new(),
+            })
+            .await
+            .expect("chat should start");
+        assert!(
+            matches!(stream.next().await, Some(Ok(ChatStreamEvent::ReasoningDelta(text))) if text == "think")
+        );
+        assert_eq!(stream.next().await, Some(Err(ChatProviderError::Timeout)));
+
+        // Total duration beyond the idle timeout is fine while data keeps
+        // flowing: each gap stays below the limit.
+        let fake = FakeProviderServer::start(vec![
+            FakeResponse::sse(format!("{first}{rest}"))
+                .with_body_gap(first.len(), Duration::from_millis(30)),
+        ])
+        .await;
+        let provider = OpenAiProvider::new(
+            &ProviderBaseUrl::parse(fake.base_url()).expect("local base should normalize"),
+            "provider-key-sentinel".to_owned(),
+            Duration::from_millis(80),
+        )
+        .expect("provider should build");
+        let mut stream = provider
+            .chat(ChatRequest {
+                model: "model".to_owned(),
+                messages: Vec::new(),
+            })
+            .await
+            .expect("chat should start");
+        assert!(
+            matches!(stream.next().await, Some(Ok(ChatStreamEvent::ReasoningDelta(text))) if text == "think")
+        );
+        assert!(
+            matches!(stream.next().await, Some(Ok(ChatStreamEvent::Delta(text))) if text == "done")
+        );
+        assert!(
+            matches!(stream.next().await, Some(Ok(ChatStreamEvent::Done { finish_reason, .. })) if finish_reason == "stop")
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_send_wait_respects_idle_timeout() {
+        use chat_core::provider::{ChatProvider, ChatProviderError, ChatRequest};
+
+        let fake = FakeProviderServer::start(vec![
+            FakeResponse::sse("data: [DONE]\n\n").delayed(Duration::from_millis(200)),
+        ])
+        .await;
+        let provider = OpenAiProvider::new(
+            &ProviderBaseUrl::parse(fake.base_url()).expect("local base should normalize"),
+            "provider-key-sentinel".to_owned(),
+            Duration::from_millis(50),
+        )
+        .expect("provider should build");
+        let Err(error) = provider
+            .chat(ChatRequest {
+                model: "model".to_owned(),
+                messages: Vec::new(),
+            })
+            .await
+        else {
+            panic!("stalled headers should time out");
+        };
+        assert_eq!(error, ChatProviderError::Timeout);
     }
 }

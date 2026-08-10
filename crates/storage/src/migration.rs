@@ -10,11 +10,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("../migrations/0001_initial.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("../migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "message_reasoning",
+        sql: include_str!("../migrations/0002_message_reasoning.sql"),
+    },
+];
 
 pub(crate) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;

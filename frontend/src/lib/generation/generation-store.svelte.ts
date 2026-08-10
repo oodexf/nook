@@ -89,6 +89,10 @@ type ActiveGeneration = {
   pending: string;
   /** rAF-batched visible stream text. */
   visible: string;
+  /** Reasoning deltas not yet flushed to the visible reasoning text. */
+  pendingReasoning: string;
+  /** rAF-batched visible reasoning (thinking chain) text. */
+  visibleReasoning: string;
   flushScheduled: boolean;
   cancelRequested: boolean;
 };
@@ -105,6 +109,8 @@ export type GenerationStore = {
   readonly model: string | null;
   /** rAF-batched visible assistant text of the active/last stream. */
   readonly streamingText: string;
+  /** rAF-batched visible reasoning text of the active/last stream. */
+  readonly streamingReasoning: string;
   readonly terminal: GenerationTerminal | null;
   readonly isBusy: boolean;
   /**
@@ -187,9 +193,14 @@ export function createGenerationStore(
   }
 
   function flushNow(stream: ActiveGeneration): void {
-    if (stream.pending.length === 0) return;
-    stream.visible += stream.pending;
-    stream.pending = "";
+    if (stream.pending.length > 0) {
+      stream.visible += stream.pending;
+      stream.pending = "";
+    }
+    if (stream.pendingReasoning.length > 0) {
+      stream.visibleReasoning += stream.pendingReasoning;
+      stream.pendingReasoning = "";
+    }
   }
 
   async function settle(
@@ -281,6 +292,10 @@ export function createGenerationStore(
         current.pending += event.text;
         scheduleFlush(current);
         break;
+      case "reasoning-delta":
+        current.pendingReasoning += event.text;
+        scheduleFlush(current);
+        break;
       case "done":
         void settle(current, {
           kind: "completed",
@@ -316,6 +331,8 @@ export function createGenerationStore(
       controller: new AbortController(),
       pending: "",
       visible: "",
+      pendingReasoning: "",
+      visibleReasoning: "",
       flushScheduled: false,
       cancelRequested: false,
       isDraft: init.isDraft,
@@ -383,6 +400,9 @@ export function createGenerationStore(
     },
     get streamingText() {
       return active?.visible ?? "";
+    },
+    get streamingReasoning() {
+      return active?.visibleReasoning ?? "";
     },
     get terminal() {
       return terminal;

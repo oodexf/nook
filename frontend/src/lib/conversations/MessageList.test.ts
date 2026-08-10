@@ -15,6 +15,7 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
     clientMessageId: null,
     role: "user",
     content: "内容",
+    reasoning: null,
     status: "completed",
     model: null,
     errorCode: null,
@@ -54,6 +55,29 @@ function mountList(props: {
 describe("MessageList", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    // @ts-expect-error test cleanup of the stubbed clipboard
+    delete navigator.clipboard;
+  });
+
+  it("places persisted messages in shared role lanes", () => {
+    const { container, destroy } = mountList({
+      messages: [
+        message({ role: "user", content: "问题" }),
+        message({ role: "assistant", content: "回答", model: "test-model" })
+      ]
+    });
+
+    const lanes = container.querySelectorAll("article.lane");
+    expect(lanes).toHaveLength(2);
+    // Phase I-01 contract: user right lane, assistant left lane.
+    expect(lanes[0]?.getAttribute("data-role")).toBe("user");
+    expect(lanes[0]?.getAttribute("aria-label")).toBe("你");
+    expect(lanes[1]?.getAttribute("data-role")).toBe("assistant");
+    expect(lanes[1]?.getAttribute("aria-label")).toBe("助手");
+    // Copy/status treatment stays attached to the owning lane.
+    expect(lanes[0]?.querySelector(".actions .copy-button")).not.toBeNull();
+    expect(lanes[1]?.querySelector(".actions .copy-button")).not.toBeNull();
+    destroy();
   });
 
   it("renders formulas only for persisted assistant messages", () => {
@@ -65,13 +89,42 @@ describe("MessageList", () => {
       ]
     });
 
-    const userMessage = container.querySelector("article[aria-label='你']");
-    expect(userMessage?.querySelector(".katex")).toBeNull();
-    expect(userMessage?.textContent).toContain("$x^2$");
-    const assistantMessage = container.querySelector(
-      "article[aria-label='助手']"
+    const userLane = container.querySelector(".lane[data-role='user']");
+    expect(userLane?.querySelector(".katex")).toBeNull();
+    expect(userLane?.textContent).toContain("$x^2$");
+    const assistantLane = container.querySelector(
+      ".lane[data-role='assistant']"
     );
-    expect(assistantMessage?.querySelector(".katex msup")).not.toBeNull();
+    expect(assistantLane?.querySelector(".katex msup")).not.toBeNull();
+    destroy();
+  });
+
+  it("uses the shared compact copy control with announced feedback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    const { container, destroy } = mountList({
+      messages: [message({ role: "user", content: "复制我" })]
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      ".lane[data-role='user'] button.copy-button"
+    );
+    expect(button?.getAttribute("aria-label")).toBe("复制你消息内容");
+    expect(button?.title).toBe("复制你消息内容");
+    expect(button?.dataset.state).toBe("idle");
+    expect(button?.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+
+    button?.click();
+    await vi.waitFor(() => {
+      expect(button?.dataset.state).toBe("copied");
+    });
+    expect(writeText).toHaveBeenCalledWith("复制我");
+    expect(
+      container.querySelector("[role='status']")?.textContent
+    ).toContain("已复制");
     destroy();
   });
 
@@ -133,7 +186,7 @@ describe("MessageList", () => {
     destroy();
   });
 
-  it("labels a completed retry as regenerate", () => {
+  it("renders regenerate as a compact accessible icon action", () => {
     const { container, destroy } = mountList({
       messages: [
         message({ role: "assistant", status: "completed", content: "回答" })
@@ -141,9 +194,11 @@ describe("MessageList", () => {
       onRetry: () => undefined
     });
 
-    expect(
-      container.querySelector("button.retry")?.textContent?.trim()
-    ).toBe("重新生成");
+    const retry = container.querySelector<HTMLButtonElement>("button.retry");
+    expect(retry?.getAttribute("aria-label")).toBe("重新生成助手消息");
+    expect(retry?.title).toBe("重新生成");
+    expect(retry?.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+    expect(retry?.textContent?.trim()).toBe("");
     destroy();
   });
 

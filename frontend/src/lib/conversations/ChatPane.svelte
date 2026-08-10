@@ -405,7 +405,7 @@
         </div>
       {/if}
     {:else}
-      <span class="header-placeholder">Minimal AI Chat</span>
+      <span class="header-placeholder">栖语 NooK</span>
     {/if}
   </header>
 
@@ -466,6 +466,7 @@
           <StreamingTurn
             userContent={pendingUserContent}
             assistantText={generation.streamingText}
+            reasoningText={generation.streamingReasoning}
             phase={generation.phase}
             terminal={generation.terminal}
             model={generation.model}

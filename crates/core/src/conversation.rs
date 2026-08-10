@@ -25,6 +25,9 @@ pub struct Message {
     pub client_message_id: Option<String>,
     pub role: MessageRole,
     pub content: String,
+    /// Persisted reasoning (thinking chain) for assistant messages; `None`
+    /// for user messages and for assistant messages from non-reasoning models.
+    pub reasoning: Option<String>,
     pub status: MessageStatus,
     pub model: Option<String>,
     pub error_code: Option<String>,

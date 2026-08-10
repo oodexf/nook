@@ -112,7 +112,7 @@ fn messages_for_conversation(
 ) -> Result<Vec<Message>, StorageError> {
     let mut statement = connection.prepare(
         "SELECT id, conversation_id, client_message_id, role, content, status,
-                model, error_code, created_at, finished_at
+                model, error_code, created_at, finished_at, reasoning
          FROM messages WHERE conversation_id = ?1
          ORDER BY created_at ASC, id ASC",
     )?;
@@ -129,8 +129,8 @@ pub(crate) fn insert_message_for_test(
     transaction.execute(
         "INSERT INTO messages
          (id, conversation_id, client_message_id, role, content, status, model,
-          error_code, created_at, finished_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+          error_code, created_at, finished_at, reasoning)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             message.id,
             message.conversation_id,
@@ -141,7 +141,8 @@ pub(crate) fn insert_message_for_test(
             message.model,
             message.error_code,
             message.created_at,
-            message.finished_at
+            message.finished_at,
+            message.reasoning
         ],
     )?;
     Ok(())
@@ -212,6 +213,7 @@ fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
         error_code: row.get(7)?,
         created_at: row.get(8)?,
         finished_at: row.get(9)?,
+        reasoning: row.get(10)?,
     })
 }
 

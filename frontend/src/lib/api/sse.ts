@@ -34,6 +34,11 @@ export type ChatStreamDelta = {
   text: string;
 };
 
+export type ChatStreamReasoningDelta = {
+  kind: "reasoning-delta";
+  text: string;
+};
+
 export type ChatStreamDone = {
   kind: "done";
   finishReason: string;
@@ -55,6 +60,7 @@ export type ChatStreamError = {
 export type ChatStreamEvent =
   | ChatStreamMeta
   | ChatStreamDelta
+  | ChatStreamReasoningDelta
   | ChatStreamDone
   | ChatStreamStopped
   | ChatStreamError;
@@ -158,6 +164,14 @@ function decodeDelta(value: unknown): ChatStreamDelta | null {
   return null;
 }
 
+function decodeReasoningDelta(value: unknown): ChatStreamReasoningDelta | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.text === "string" && value.text.length <= MAX_DELTA_LENGTH) {
+    return { kind: "reasoning-delta", text: value.text };
+  }
+  return null;
+}
+
 function decodeDone(value: unknown): ChatStreamDone | null {
   if (!isRecord(value)) return null;
   if (!isBoundedString(value.finish_reason, MAX_REASON_LENGTH)) return null;
@@ -206,11 +220,18 @@ function decodeError(value: unknown): ChatStreamError | null {
   return null;
 }
 
-type EventName = "meta" | "delta" | "done" | "stopped" | "error";
+type EventName =
+  | "meta"
+  | "delta"
+  | "reasoning_delta"
+  | "done"
+  | "stopped"
+  | "error";
 
 const KNOWN_EVENTS: readonly EventName[] = [
   "meta",
   "delta",
+  "reasoning_delta",
   "done",
   "stopped",
   "error"
@@ -226,6 +247,8 @@ function decodePayload(name: EventName, value: unknown): ChatStreamEvent | null 
       return decodeMeta(value);
     case "delta":
       return decodeDelta(value);
+    case "reasoning_delta":
+      return decodeReasoningDelta(value);
     case "done":
       return decodeDone(value);
     case "stopped":

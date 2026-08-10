@@ -30,6 +30,10 @@ function deltaBlock(text: string): string {
   return `event: delta\ndata: ${JSON.stringify({ event: "delta", text })}\n\n`;
 }
 
+function reasoningBlock(text: string): string {
+  return `event: reasoning_delta\ndata: ${JSON.stringify({ event: "reasoning_delta", text })}\n\n`;
+}
+
 function doneBlock(): string {
   return 'event: done\ndata: {"event":"done","finish_reason":"stop","usage":null}\n\n';
 }
@@ -127,6 +131,37 @@ describe("generation store", () => {
     expect(body.content).toBe("你好");
     expect(body.model).toBe("test-model");
     expect(body.client_message_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  });
+
+  it("accumulates reasoning deltas on their own channel", async () => {
+    const stream = controlledStream();
+    vi.mocked(fetch).mockResolvedValue(stream.response);
+    const store = createGenerationStore();
+
+    const send = store.send({
+      conversationId: CONVERSATION_ID,
+      content: "hi",
+      model: null,
+      csrfToken: "csrf"
+    });
+    stream.push(metaBlock());
+    await vi.waitFor(() => expect(store.phase).toBe("streaming"));
+
+    stream.push(reasoningBlock("先想"));
+    stream.push(reasoningBlock("再想"));
+    expect(store.streamingReasoning).toBe("");
+    expect(store.streamingText).toBe("");
+    await flushFrame();
+    expect(store.streamingReasoning).toBe("先想再想");
+    expect(store.streamingText).toBe("");
+
+    stream.push(deltaBlock("答"));
+    stream.push(doneBlock());
+    stream.close();
+    await send;
+    expect(store.streamingReasoning).toBe("先想再想");
+    expect(store.streamingText).toBe("答");
+    expect(store.phase).toBe("completed");
   });
 
   it("batches visible deltas to at most one animation frame", async () => {
@@ -624,5 +659,41 @@ describe("generation store", () => {
     expect(store.phase).toBe("idle");
     expect(store.streamingText).toBe("");
     expect(store.conversationId).toBeNull();
+  });
+
+  it("clear releases a failed pre-meta draft stream so a new draft can start", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "model_unavailable",
+            message: "The selected model is no longer available.",
+            request_id: "req-1"
+          }
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const store = createGenerationStore();
+
+    await store.send({
+      conversationId: null,
+      content: "hi",
+      model: "gone-model",
+      csrfToken: "csrf"
+    });
+    expect(store.phase).toBe("failed");
+    // The failed draft stream still owns the empty-draft view until the
+    // shell releases it (the pane's release effect cannot fire because
+    // `assistantMessageId === null`).
+    expect(store.isActiveFor(null)).toBe(true);
+
+    // The 新建对话 path (AppShell.handleNew) clears the settled stream:
+    // the draft view must become clean and ready for a brand-new send.
+    store.clear();
+    expect(store.phase).toBe("idle");
+    expect(store.isActiveFor(null)).toBe(false);
+    expect(store.streamingText).toBe("");
+    expect(store.pendingUserContent).toBeNull();
   });
 });
