@@ -126,3 +126,20 @@ Use a local deterministic fake provider for:
 - never-ending stream and delayed cancellation;
 - usage metadata present and absent.
 
+
+## Reasoning Streams and Idle Timeout (08-10)
+
+- Upstream deltas may carry thinking content as `reasoning_content`
+  (DeepSeek/Qwen style) or `reasoning` (OpenRouter style); the provider
+  adapter accepts both, concatenates them when a chunk carries both, and
+  emits `ChatStreamEvent::ReasoningDelta` before any content delta.
+- The chat request timeout is an **idle** timeout, not a total one: the
+  reqwest client carries no total `.timeout()`; `send()` (response
+  headers) and every gap between upstream chunks are each bounded by
+  `ai_request_timeout`. Long reasoning phases with continuous output never
+  trip it; a silent gap longer than the limit maps to
+  `ChatProviderError::Timeout`.
+- The non-streaming model-catalog request keeps its per-request total
+  timeout (`.timeout()` on the request builder).
+- Reasoning text is never sent back upstream: conversation context maps to
+  `{role, content}` only.

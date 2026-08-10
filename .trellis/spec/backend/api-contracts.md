@@ -305,3 +305,16 @@ typed frontend API client
 → frontend central decoder updates the owning generation
 → server finalizes one persisted assistant state
 ```
+
+## Reasoning Chain Contract (08-10)
+
+- The public SSE protocol adds a `reasoning_delta` event
+  (`{"event":"reasoning_delta","text":"..."}`), emitted between `meta` and
+  the first `delta` while the provider streams thinking content. Terminal
+  accounting is unchanged: exactly one of `done` / `stopped` / `error`.
+- Replay of a terminal generation re-sends the persisted reasoning as one
+  `reasoning_delta` before the full-content `delta`, preserving the live
+  event order.
+- `MessageResponse` carries `reasoning: string | null`; persisted in
+  `messages.reasoning` (migration 0002, assistant-only via column CHECK).
+  Frontend decoders tolerate the field being absent (older payloads).

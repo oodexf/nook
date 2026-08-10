@@ -97,3 +97,17 @@ Stop:
   token.
 - Model-catalog failure is distinct from generation failure.
 
+
+## Reasoning Channel (08-10)
+
+- The central decoder accepts `reasoning_delta` events
+  (`ChatStreamReasoningDelta`, same text bound as `delta`). Unknown-event
+  tolerance means older frontends silently ignore them.
+- The generation store accumulates reasoning on its own rAF-batched
+  channel (`streamingReasoning`) separate from the answer text; both flush
+  through the same scheduler.
+- `ReasoningBlock` (lib/components) is the single collapsible thinking UI,
+  shared by `StreamingTurn` (live, starts expanded, auto-collapses once
+  when answer content starts unless the user already toggled) and
+  `MessageItem` (history, starts collapsed). Reasoning renders as plain
+  de-emphasized text, never Markdown.
