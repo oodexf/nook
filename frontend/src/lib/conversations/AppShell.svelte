@@ -188,6 +188,14 @@
   function handleNew() {
     void closeDrawer(true);
     store.openNew();
+    // A settled stream that never released (notably a pre-meta failed draft:
+    // `assistantMessageId === null`, so the pane's release effect cannot
+    // fire) would keep `isActiveFor(null)` true and leave the stale failure
+    // overlay on the brand-new conversation screen. Starting a new
+    // conversation is an explicit user action: release any non-busy stream
+    // so the empty-draft view renders clean. `clear()` is a no-op while a
+    // stream is busy, so mid-stream navigation behavior is untouched.
+    generation.clear();
   }
 
   $effect(() => {

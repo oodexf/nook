@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { mount, unmount } from "svelte";
+import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { onSessionExpired } from "../api/client";
@@ -120,6 +120,8 @@ type Routes = {
   refresh?: RouteHandler;
   patch?: (id: string) => FetchResult;
   remove?: (id: string) => FetchResult;
+  /** POST /api/v1/conversations/new/messages (draft first send). */
+  draftSend?: RouteHandler;
 };
 
 type CapturedRequest = { url: string; init?: RequestInit };
@@ -148,6 +150,11 @@ function installRouter(routes: Routes): { requests: CapturedRequest[] } {
     if (url.startsWith("/api/v1/conversations?") && method === "GET") {
       return Promise.resolve(
         routes.list?.() ?? jsonResponse(404, notFound())
+      );
+    }
+    if (url === "/api/v1/conversations/new/messages" && method === "POST") {
+      return Promise.resolve(
+        routes.draftSend?.() ?? jsonResponse(404, notFound())
       );
     }
     const conversationMatch = /^\/api\/v1\/conversations\/([^/?]+)$/.exec(url);
@@ -1223,6 +1230,75 @@ describe("AppShell", () => {
     await vi.waitFor(() => {
       expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
     });
+  });
+
+  it("starts a fresh conversation after the first draft send fails", async () => {
+    installRouter({
+      list: () => page([], null),
+      draftSend: () =>
+        jsonResponse(409, {
+          error: {
+            code: "model_unavailable",
+            message: "The selected model is no longer available.",
+            request_id: "r-409"
+          }
+        })
+    });
+    mountShell();
+
+    // The empty-draft screen with a usable composer. The h2 renders as
+    // soon as the shell mounts, but the send button only enables after the
+    // model catalog finishes loading AND the input is non-empty; type
+    // first, then gate the click on the enabled button.
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLTextAreaElement>("#composer-input")
+      ).not.toBeNull();
+    });
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      "#composer-input"
+    );
+    textarea!.value = "第一条消息";
+    textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    // Svelte flushes DOM updates asynchronously; flush so the send button
+    // is enabled before the click.
+    flushSync();
+    await vi.waitFor(() => {
+      const sendButton = container.querySelector<HTMLButtonElement>(
+        "button[aria-label='发送消息']"
+      );
+      expect(sendButton?.disabled).toBe(false);
+    });
+    container
+      .querySelector<HTMLButtonElement>("button[aria-label='发送消息']")
+      ?.click();
+
+    // Pre-meta failure: the failed turn overlay owns the draft view.
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector(".turn[data-phase='failed']")
+      ).not.toBeNull();
+    });
+    expect(byText(container, "h2", "开始一个新对话")).toBeUndefined();
+
+    // Clicking 新建对话 must release the stale stream and render the
+    // draft screen again (regression: the failed draft stream kept
+    // `isActiveFor(null)` true and blocked the new-conversation action).
+    // The failed text is intentionally restored so the user can retry it.
+    byText(container, ".nav-entry", "新建对话")?.click();
+
+    await vi.waitFor(() => {
+      expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
+    });
+    expect(container.querySelector(".turn[data-phase='failed']")).toBeNull();
+    const freshTextarea = container.querySelector<HTMLTextAreaElement>(
+      "#composer-input"
+    );
+    expect(freshTextarea?.value).toBe("第一条消息");
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='发送消息']"
+    );
+    expect(sendButton?.disabled).toBe(false);
   });
 
   it("pins a conversation into the pinned section as a local placeholder", async () => {
