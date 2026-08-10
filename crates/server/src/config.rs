@@ -10,6 +10,8 @@ const DEFAULT_MAX_CONTEXT_CHARS: usize = 200_000;
 const DEFAULT_MAX_ACTIVE_GENERATIONS: usize = 4;
 const DEFAULT_MODEL_CACHE_TTL_SECS: u64 = 60;
 const MIN_ACCESS_TOKEN_BYTES: usize = 32;
+const INSECURE_TEST_TOKEN_FLAG: &str = "APP_ALLOW_INSECURE_TEST_TOKEN";
+const INSECURE_TEST_TOKEN: &str = "test";
 
 #[derive(Clone)]
 pub struct AppConfig {
@@ -40,8 +42,12 @@ impl AppConfig {
         let bind_value = lookup("APP_BIND").unwrap_or_else(|| DEFAULT_BIND.to_owned());
         let bind = SocketAddr::from_str(&bind_value)
             .map_err(|_| ConfigError::InvalidBind(bind_value.clone()))?;
+        let allow_insecure_test_token =
+            optional_bool(&mut lookup, INSECURE_TEST_TOKEN_FLAG, false)?;
         let access_token = required(&mut lookup, "APP_ACCESS_TOKEN")?;
-        if access_token.len() < MIN_ACCESS_TOKEN_BYTES {
+        let is_explicit_test_token =
+            allow_insecure_test_token && access_token == INSECURE_TEST_TOKEN;
+        if access_token.len() < MIN_ACCESS_TOKEN_BYTES && !is_explicit_test_token {
             return Err(ConfigError::WeakAccessToken);
         }
 
@@ -193,7 +199,7 @@ impl fmt::Display for ConfigError {
             }
             Self::WeakAccessToken => write!(
                 formatter,
-                "APP_ACCESS_TOKEN must contain at least {MIN_ACCESS_TOKEN_BYTES} bytes"
+                "APP_ACCESS_TOKEN must contain at least {MIN_ACCESS_TOKEN_BYTES} bytes (except for the exact local test token when {INSECURE_TEST_TOKEN_FLAG}=true)"
             ),
         }
     }
@@ -312,6 +318,31 @@ mod tests {
 
         let Err(error) = AppConfig::from_lookup(|key| values.get(key).cloned()) else {
             panic!("short access token should fail");
+        };
+
+        assert_eq!(error, ConfigError::WeakAccessToken);
+    }
+
+    #[test]
+    fn allows_exact_short_test_token_only_with_explicit_test_flag() {
+        let mut values = valid_values();
+        values.insert("APP_ACCESS_TOKEN", "test".to_owned());
+        values.insert("APP_ALLOW_INSECURE_TEST_TOKEN", "true".to_owned());
+
+        let config = AppConfig::from_lookup(|key| values.get(key).cloned())
+            .expect("explicit local test override should allow the shared test token");
+
+        assert_eq!(config.access_token, "test");
+    }
+
+    #[test]
+    fn rejects_other_short_tokens_with_test_flag() {
+        let mut values = valid_values();
+        values.insert("APP_ACCESS_TOKEN", "still-too-short".to_owned());
+        values.insert("APP_ALLOW_INSECURE_TEST_TOKEN", "true".to_owned());
+
+        let Err(error) = AppConfig::from_lookup(|key| values.get(key).cloned()) else {
+            panic!("test override must not disable validation for arbitrary tokens");
         };
 
         assert_eq!(error, ConfigError::WeakAccessToken);
