@@ -1,0 +1,9 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/provider-guidelines.md", "reason": "上游 provider 解析与超时改动规范"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "SSE/REST 契约新增事件与字段约束"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "messages 表迁移与 finalize 事务规范"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Timeout 等错误映射保持不变"}
+{"file": ".trellis/spec/frontend/streaming-data-access.md", "reason": "SSE 解码器与流式状态所有权规范"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "ReasoningBlock 组件规范"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "generation-store 累积通道规范"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "unknown 解码与类型边界"}
