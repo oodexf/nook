@@ -31,15 +31,18 @@ App
         MarkdownContent
         MessageActions
     Composer
-      DraftModelSelector
+      ComposerModelSelector
       AutoResizeTextarea
       SendOrStopButton
     ConfirmDialog
     ToastRegion
 ```
 
-`DraftModelSelector` is only interactive before the first message. Existing
-conversations show a non-editable model label.
+`ComposerModelSelector` (08-10) is only interactive before the first
+message: ChatPane injects it into the composer's `beforeSend` slot only in
+the draft view, where its trigger sits left of the send button and opens an
+upward popover owning the catalog states (loading, error, stale, refresh).
+Existing conversations show a non-editable model label.
 
 ## Props and Events
 

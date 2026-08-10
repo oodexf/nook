@@ -10,6 +10,7 @@
   import TrashIcon from "../components/TrashIcon.svelte";
   import StreamingTurn from "../generation/StreamingTurn.svelte";
   import type { GenerationStore } from "../generation/generation-store.svelte";
+  import ComposerModelSelector from "../models/ComposerModelSelector.svelte";
   import Composer from "./Composer.svelte";
   import {
     clearDraft,
@@ -203,6 +204,13 @@
     streamVisible && generation.assistantMessageId !== null
       ? [generation.assistantMessageId]
       : []
+  );
+
+  // The composer model selector appears only in the draft view: once a
+  // conversation exists (or its first stream is in flight) the model is
+  // locked and shown in the header instead.
+  const showDraftModelSelector = $derived(
+    store.detailStatus === "idle" && !streamVisible
   );
 
   const lockedModelRemoved = $derived(
@@ -429,7 +437,7 @@
     onscroll={handleBodyScroll}
   >
     {#if store.detailStatus === "idle" && !streamVisible}
-      <EmptyConversation {modelStore} {csrfToken} />
+      <EmptyConversation />
     {:else if store.detailStatus === "loading" && !streamVisible}
       <p class="pane-note" role="status">正在加载对话…</p>
     {:else if store.detailStatus === "error"}
@@ -502,7 +510,13 @@
       stopping={generation.phase === "stopping"}
       onSend={(content) => void handleSend(content)}
       onStop={handleStop}
-    />
+    >
+      {#snippet beforeSend()}
+        {#if showDraftModelSelector}
+          <ComposerModelSelector store={modelStore} {csrfToken} />
+        {/if}
+      {/snippet}
+    </Composer>
   {/if}
 </section>
 

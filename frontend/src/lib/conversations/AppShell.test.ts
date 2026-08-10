@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { onSessionExpired } from "../api/client";
 import AppShell from "./AppShell.svelte";
+import { GREETING_POOLS } from "./greetings";
+
+const ALL_GREETINGS: readonly string[] = Object.values(GREETING_POOLS).flat();
 
 type Mounted = Record<string, never>;
 
@@ -108,6 +111,16 @@ function byText(
   return Array.from(root.querySelectorAll<HTMLElement>(selector)).find(
     (element) => element.textContent?.includes(text)
   );
+}
+
+// The empty-draft hero is a random time-of-day greeting (08-10), so tests
+// assert membership in the pool rather than one fixed string.
+function greetingIn(container: HTMLElement): HTMLElement | undefined {
+  const element = container.querySelector<HTMLElement>(".greeting");
+  if (element && ALL_GREETINGS.includes(element.textContent ?? "")) {
+    return element;
+  }
+  return undefined;
 }
 
 type FetchResult = Response | Promise<Response>;
@@ -250,7 +263,7 @@ describe("AppShell", () => {
     await vi.waitFor(() => {
       expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
     });
-    expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
+    expect(greetingIn(container)).toBeDefined();
   });
 
   it("renders the empty state when there are no conversations", async () => {
@@ -457,7 +470,7 @@ describe("AppShell", () => {
 
     await vi.waitFor(() => {
       expect(container.querySelector("[role='dialog']")).toBeNull();
-      expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
+      expect(greetingIn(container)).toBeDefined();
     });
     const request = requests.find(
       (entry) => entry.init?.method === "DELETE"
@@ -1228,7 +1241,7 @@ describe("AppShell", () => {
     // The enabled entry keeps the new-conversation behavior.
     newChat?.click();
     await vi.waitFor(() => {
-      expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
+      expect(greetingIn(container)).toBeDefined();
     });
   });
 
@@ -1279,7 +1292,7 @@ describe("AppShell", () => {
         container.querySelector(".turn[data-phase='failed']")
       ).not.toBeNull();
     });
-    expect(byText(container, "h2", "开始一个新对话")).toBeUndefined();
+    expect(greetingIn(container)).toBeUndefined();
 
     // Clicking 新建对话 must release the stale stream and render the
     // draft screen again (regression: the failed draft stream kept
@@ -1288,7 +1301,7 @@ describe("AppShell", () => {
     byText(container, ".nav-entry", "新建对话")?.click();
 
     await vi.waitFor(() => {
-      expect(byText(container, "h2", "开始一个新对话")).toBeDefined();
+      expect(greetingIn(container)).toBeDefined();
     });
     expect(container.querySelector(".turn[data-phase='failed']")).toBeNull();
     const freshTextarea = container.querySelector<HTMLTextAreaElement>(
@@ -1535,23 +1548,87 @@ describe("AppShell model flows", () => {
     const { requests } = installRouter({ list: () => page([], null) });
     mountShell();
 
-    const select = await vi.waitFor(() => {
-      const found = container.querySelector<HTMLSelectElement>("#draft-model-select");
-      expect(found).not.toBeNull();
-      return found as HTMLSelectElement;
+    // The composer trigger shows the configured default once the catalog
+    // finishes loading.
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found?.textContent).toContain("test-model");
+      return found as HTMLButtonElement;
     });
 
     expect(requests.some((request) => request.url === "/api/v1/models")).toBe(
       true
     );
-    // The label is programmatically associated with the control.
-    const label = container.querySelector("label[for='draft-model-select']");
-    expect(label?.textContent).toContain("对话模型");
-    // The configured default is preselected.
-    expect(select.value).toBe("test-model");
+    // The trigger is accessibly named with the current selection.
+    expect(trigger.getAttribute("aria-label")).toContain("选择模型");
+    expect(trigger.getAttribute("aria-label")).toContain("test-model");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    // Opening the popover lists every catalog model with the default marked.
+    trigger.click();
+    const popover = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLElement>(".model-popover");
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const options = Array.from(
+      popover.querySelectorAll<HTMLButtonElement>(".model-option")
+    );
+    expect(options.map((option) => option.textContent?.trim())).toEqual([
+      "test-model",
+      "model-b"
+    ]);
     expect(
-      Array.from(select.options).map((option) => option.value)
-    ).toEqual(["test-model", "model-b"]);
+      options[0].classList.contains("selected")
+    ).toBe(true);
+  });
+
+  it("closes the model popover with Escape and restores trigger focus", async () => {
+    installRouter({ list: () => page([], null) });
+    mountShell();
+
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found?.textContent).toContain("test-model");
+      return found as HTMLButtonElement;
+    });
+    trigger.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".model-popover")).not.toBeNull();
+    });
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    );
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".model-popover")).toBeNull();
+    });
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes the model popover on an outside pointer press", async () => {
+    installRouter({ list: () => page([], null) });
+    mountShell();
+
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found?.textContent).toContain("test-model");
+      return found as HTMLButtonElement;
+    });
+    trigger.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".model-popover")).not.toBeNull();
+    });
+
+    document.body.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true })
+    );
+
+    await vi.waitFor(() => {
+      expect(container.querySelector(".model-popover")).toBeNull();
+    });
   });
 
   it("preselects the remembered draft model and persists a new choice", async () => {
@@ -1559,21 +1636,28 @@ describe("AppShell model flows", () => {
     installRouter({ list: () => page([], null) });
     mountShell();
 
-    const select = await vi.waitFor(() => {
-      const found = container.querySelector<HTMLSelectElement>("#draft-model-select");
-      expect(found).not.toBeNull();
-      return found as HTMLSelectElement;
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found?.textContent).toContain("model-b");
+      return found as HTMLButtonElement;
     });
-    expect(select.value).toBe("model-b");
 
-    select.value = "test-model";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    trigger.click();
+    const option = await vi.waitFor(() => {
+      const found = byText(container, ".model-option", "test-model");
+      expect(found).toBeDefined();
+      return found as HTMLElement;
+    });
+    option.click();
 
     await vi.waitFor(() => {
       expect(window.localStorage.getItem("chat.draft-model-id")).toBe(
         "test-model"
       );
     });
+    // A successful pick applies to the trigger and closes the popover.
+    expect(trigger.textContent).toContain("test-model");
+    expect(container.querySelector(".model-popover")).toBeNull();
   });
 
   it("shows a blocking configuration state when the configured default is missing", async () => {
@@ -1590,14 +1674,22 @@ describe("AppShell model flows", () => {
     });
     mountShell();
 
-    await vi.waitFor(() => {
-      expect(container.querySelector("[role='alert']")).not.toBeNull();
+    // The composer trigger is still offered so its popover can surface the
+    // blocking state and the retry entry.
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
     });
-    expect(
-      byText(container, ".error-text", "模型配置不可用")
-    ).toBeDefined();
-    // Blocking state: no selector is offered and no model is invented.
-    expect(container.querySelector("#draft-model-select")).toBeNull();
+    trigger.click();
+
+    await vi.waitFor(() => {
+      expect(
+        byText(container, ".error-text", "模型配置不可用")
+      ).toBeDefined();
+    });
+    // Blocking state: no model option is offered and none is invented.
+    expect(container.querySelector(".model-option")).toBeNull();
   });
 
   it("labels a malformed catalog as a recoverable error with retry", async () => {
@@ -1610,18 +1702,25 @@ describe("AppShell model flows", () => {
     });
     mountShell();
 
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
+    });
+    trigger.click();
+
     await vi.waitFor(() => {
       expect(
         byText(container, ".error-text", "模型列表加载失败")
       ).toBeDefined();
     });
-    expect(container.querySelector("#draft-model-select")).toBeNull();
+    expect(container.querySelector(".model-option")).toBeNull();
 
     byText(container, ".retry", "重试")?.click();
 
     await vi.waitFor(() => {
       expect(
-        container.querySelector("#draft-model-select")
+        container.querySelector(".model-option")
       ).not.toBeNull();
     });
   });
@@ -1644,6 +1743,12 @@ describe("AppShell model flows", () => {
     await vi.waitFor(() => {
       expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
     });
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
+    });
+    trigger.click();
     await vi.waitFor(() => {
       expect(
         byText(container, ".error-text", "模型列表加载失败")
@@ -1675,16 +1780,23 @@ describe("AppShell model flows", () => {
     });
     mountShell();
 
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
+    });
+    trigger.click();
+
     await vi.waitFor(() => {
       expect(byText(container, ".stale-banner", "可能不是最新")).toBeDefined();
     });
     // The stale catalog still offers its models; nothing is blocked.
-    expect(container.querySelector("#draft-model-select")).not.toBeNull();
+    expect(container.querySelector(".model-option")).not.toBeNull();
 
     byText(container, ".refresh-button", "刷新模型列表")?.click();
 
     await vi.waitFor(() => {
-      expect(byText(container, ".panel-note", "模型列表已更新")).toBeDefined();
+      expect(byText(container, ".popover-note", "模型列表已更新")).toBeDefined();
     });
     const refresh = requests.find(
       (request) => request.url === "/api/v1/models/refresh"
@@ -1704,8 +1816,15 @@ describe("AppShell model flows", () => {
     });
     mountShell();
 
+    const trigger = await vi.waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(".model-trigger");
+      expect(found).not.toBeNull();
+      return found as HTMLButtonElement;
+    });
+    trigger.click();
+
     await vi.waitFor(() => {
-      expect(container.querySelector("#draft-model-select")).not.toBeNull();
+      expect(container.querySelector(".model-option")).not.toBeNull();
     });
 
     byText(container, ".refresh-button", "刷新模型列表")?.click();
@@ -1714,7 +1833,7 @@ describe("AppShell model flows", () => {
       expect(byText(container, ".stale-banner", "上次刷新失败")).toBeDefined();
     });
     // The previously loaded catalog remains usable.
-    expect(container.querySelector("#draft-model-select")).not.toBeNull();
+    expect(container.querySelector(".model-option")).not.toBeNull();
   });
 
   it("never shows the editable selector on an existing conversation", async () => {
@@ -1732,9 +1851,9 @@ describe("AppShell model flows", () => {
     await vi.waitFor(() => {
       expect(container.querySelector(".messages")).not.toBeNull();
     });
-    // Locked label only; the draft selector and refresh action are absent.
+    // Locked label only; the composer selector and refresh action are absent.
     expect(byText(container, ".locked-model", "test-model")).toBeDefined();
-    expect(container.querySelector("#draft-model-select")).toBeNull();
+    expect(container.querySelector(".model-trigger")).toBeNull();
     expect(container.querySelector(".refresh-button")).toBeNull();
   });
 
@@ -1759,7 +1878,7 @@ describe("AppShell model flows", () => {
     // The locked label is retained and history stays readable.
     expect(byText(container, ".locked-model", "removed-model")).toBeDefined();
     expect(container.querySelector(".messages")).not.toBeNull();
-    expect(container.querySelector("#draft-model-select")).toBeNull();
+    expect(container.querySelector(".model-trigger")).toBeNull();
   });
 
   it("does not claim a locked model is unavailable while the catalog is still loading", async () => {
@@ -1783,7 +1902,7 @@ describe("AppShell model flows", () => {
 
     // Catalog unresolved: no unavailable claim, no selector either.
     expect(container.querySelector(".model-unavailable")).toBeNull();
-    expect(container.querySelector("#draft-model-select")).toBeNull();
+    expect(container.querySelector(".model-trigger")).toBeNull();
 
     resolveModels(jsonResponse(200, catalog()));
     await vi.waitFor(() => {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import type { Snippet } from "svelte";
 
   import ArrowUpIcon from "../components/ArrowUpIcon.svelte";
   import CloseIcon from "../components/CloseIcon.svelte";
@@ -35,6 +36,12 @@
     stopping?: boolean;
     onSend: (content: string) => void;
     onStop: () => void;
+    /**
+     * Optional control rendered immediately left of the send/stop button
+     * (08-10: the draft model selector). Composer stays domain-agnostic;
+     * ChatPane decides what, if anything, is injected here.
+     */
+    beforeSend?: Snippet;
   };
 
   let {
@@ -43,7 +50,8 @@
     streaming,
     stopping = false,
     onSend,
-    onStop
+    onStop,
+    beforeSend
   }: Props = $props();
 
   const MAX_TEXTAREA_HEIGHT = 220;
@@ -169,6 +177,7 @@
         oncompositionstart={handleCompositionStart}
         oncompositionend={handleCompositionEnd}
       ></textarea>
+      {@render beforeSend?.()}
       {#if streaming || stopping}
         <button
           type="button"
