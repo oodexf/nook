@@ -70,3 +70,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: 新建对话页 UI 升级:输入框模型选择器与分时段问候语
+
+**Date**: 2026-08-10
+**Task**: 新建对话页 UI 升级:输入框模型选择器与分时段问候语
+**Branch**: `uifix`
+
+### Summary
+
+删除空草稿页说明文案与中央模型卡片;新增 ComposerModelSelector(发送按钮左侧触发、上方弹出卡片承接加载/错误/stale/刷新状态,Esc/外点关闭);标题改为按本地时间分桶的随机问候语;Lucide 内联图标、全程无表情符号;svelte-check/eslint/386 测试/构建全绿;同步 component-guidelines.md 组件树。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `302c506` | (see git log) |
+
+### Status
+
+[OK] **Completed**
