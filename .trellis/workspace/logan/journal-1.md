@@ -47,3 +47,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: 思维链折叠展示与空闲超时
+
+**Date**: 2026-08-10
+**Task**: 思维链折叠展示与空闲超时
+**Branch**: `uifix`
+
+### Summary
+
+实现模型思维链折叠展示：provider 解析 reasoning_content/reasoning 双字段，SSE 新增 reasoning_delta 事件，迁移 0002 持久化 messages.reasoning（assistant-only CHECK），REST MessageResponse 透出；超时改为空闲语义（静默间隔超 AI_REQUEST_TIMEOUT_SECS 才报错）。前端新增共享 ReasoningBlock 组件（流式展开、内容到达仅自动折叠一次、历史默认收起），generation store 独立 rAF 推理通道。质量门全绿：cargo fmt/clippy/test（8+54+15）、svelte-check/eslint/vitest（371）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bac3431` | (see git log) |
+| `2ecd343` | (see git log) |
+| `82f2010` | (see git log) |
+
+### Status
+
+[OK] **Completed**

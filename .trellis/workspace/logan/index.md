@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-08-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~49 | Active |
+| `journal-1.md` | ~72 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-08-10 | 思维链折叠展示与空闲超时 | `bac3431`, `2ecd343`, `82f2010` | `uifix` |
 | 2 | 2026-08-10 | 修复同一行数学公式渲染 | `86b083a` | `uifix` |
 | 1 | 2026-08-09 | 添加公式渲染 | `746d588` | `uifix` |
 <!-- @@@/auto:session-history -->
