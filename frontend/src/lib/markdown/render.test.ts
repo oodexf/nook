@@ -182,6 +182,89 @@ describe("renderMarkdown math syntax and output", () => {
     expect(sameLine.textContent).toContain("拉普拉斯变换：");
   });
 
+  it("renders representative persisted model output using LaTeX delimiters", () => {
+    const source = String.raw`以下是一些数学公式：
+
+1. **二次方程求根公式**
+   \( x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} \)
+
+2. **定积分**
+   \[ \int_{a}^{b} x^2 \, dx = \left[ \frac{x^3}{3} \right]_{a}^{b} = \frac{b^3 - a^3}{3} \]
+
+3. **矩阵**
+\[
+A = \begin{pmatrix} a & b \\ c & d \end{pmatrix}
+\]`;
+    const host = render(source);
+
+    expect(host.querySelectorAll(".katex")).toHaveLength(3);
+    expect(host.querySelectorAll(".katex-display")).toHaveLength(2);
+    expect(host.querySelectorAll("math[display='block']")).toHaveLength(2);
+    expect(host.querySelector("p > .katex mfrac")).not.toBeNull();
+    expect(host.querySelector(".katex-display mtable")).not.toBeNull();
+    expect(
+      Array.from(host.querySelectorAll("annotation"), (node) => node.textContent)
+    ).toEqual([
+      "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+      "\\int_{a}^{b} x^2 \\, dx = \\left[ \\frac{x^3}{3} \\right]_{a}^{b} = \\frac{b^3 - a^3}{3}",
+      "A = \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}"
+    ]);
+  });
+
+  it("leaves code, unmatched, empty, escaped, and nested LaTeX delimiters literal", () => {
+    const host = render(
+      [
+        "inline code `\\(code\\)` and unmatched \\(open",
+        String.raw`empty \(   \) and escaped \\(literal\\)`,
+        String.raw`outer \(unmatched then \(x\)`,
+        "",
+        "```tex",
+        String.raw`\[fenced\]`,
+        "```"
+      ].join("\n")
+    );
+
+    expect(host.querySelectorAll(".katex")).toHaveLength(1);
+    expect(host.querySelector("annotation")?.textContent).toBe("x");
+    expect(host.querySelector("p code")?.textContent).toBe("\\(code\\)");
+    expect(host.querySelector("pre code")?.textContent).toContain(
+      "\\[fenced\\]"
+    );
+    expect(host.textContent).toContain("unmatched (open");
+    expect(host.textContent).toContain("empty (   )");
+    expect(host.textContent).toContain("escaped \\(literal\\)");
+  });
+
+  it.each([
+    String.raw`outer \(unmatched then \(x\)`,
+    String.raw`outer \(unmatched then \[x\]`,
+    String.raw`outer \[unmatched then \(x\)`,
+    String.raw`outer \[unmatched then \[x\]`
+  ])("recovers from nested LaTeX delimiters: %s", (source) => {
+    const host = render(source);
+
+    expect(host.querySelectorAll(".katex")).toHaveLength(1);
+    expect(host.querySelector("annotation")?.textContent).toBe("x");
+    expect(host.textContent).toContain(
+      source.startsWith(String.raw`outer \[`) ? "outer [unmatched then" : "outer (unmatched then"
+    );
+  });
+
+  it.each([
+    String.raw`\(\href{javascript:alert(1)}{click}\)`,
+    String.raw`\[\htmlStyle{background:url(javascript:alert(1))}{x}\]`
+  ])("keeps new LaTeX delimiters on the isolated security path: %s", (source) => {
+    const host = render(source);
+
+    expectNoExecutableCarrier(host);
+    expect(host.querySelector("[href], [src]")).toBeNull();
+    for (const styled of host.querySelectorAll<HTMLElement>("[style]")) {
+      expect(styled.getAttribute("style")).not.toMatch(
+        /(?:url\s*\(|javascript:|background)/i
+      );
+    }
+  });
+
   it("renders adjacent Chinese text and consecutive same-line display formulas in order", () => {
     const host = render(
       "高斯积分：$$\\int_{-\\infty}^{\\infty}e^{-x^2},dx=\\sqrt{\\pi}$$" +
@@ -361,10 +444,10 @@ describe("renderMarkdown math syntax and output", () => {
     );
   });
 
-  it("does not parse code, currency, unmatched delimiters, or unsupported delimiters", () => {
+  it("does not parse code, currency, unmatched dollar delimiters, or escaped delimiters", () => {
     const host = render(
       [
-        "`$x$` and `$$y$$` and 价格是 $5 and unmatched $x and \\(y\\).",
+        "`$x$` and `$$y$$` and 价格是 $5 and unmatched $x.",
         "",
         "unmatched display $$x+1",
         "",
@@ -380,7 +463,6 @@ describe("renderMarkdown math syntax and output", () => {
     expect(host.textContent).toContain("价格是 $5");
     expect(host.textContent).toContain("unmatched $x");
     expect(host.textContent).toContain("unmatched display $$x+1");
-    expect(host.textContent).toContain("(y)");
   });
 
   it("preserves GFM around formulas", () => {

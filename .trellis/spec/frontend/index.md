@@ -32,10 +32,11 @@ API, and test paths.
 - Streaming updates cannot mutate a different conversation after navigation.
 - Markdown is sanitized before insertion into the DOM. Assistant formulas use
   conservative `$...$` inline syntax and closed, non-empty `$$...$$` display
-  syntax (either same-line or line-isolated): ordinary Markdown remains under
-  the strict no-style/no-SVG policy, while only per-render provenance-matched
-  `trust: false` KaTeX fragments receive the exact KaTeX-only sanitizer needed
-  for MathML and layout geometry.
+  syntax (either same-line or line-isolated), plus common model-emitted closed,
+  non-empty `\\(...\\)` inline and `\\[...\\]` display syntax; ordinary
+  Markdown remains under the strict no-style/no-SVG policy, while only
+  per-render provenance-matched `trust: false` KaTeX fragments receive the
+  exact KaTeX-only sanitizer needed for MathML and layout geometry.
 - Production is static output served by Rust; no Node.js server exists.
 
 ## Quality Check

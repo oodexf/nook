@@ -378,6 +378,149 @@ function tokenizeEscapedMathAtStart(source: string): Tokens.Generic | undefined 
   };
 }
 
+type LatexDelimiter = {
+  opening: "\\(" | "\\[";
+  closing: "\\)" | "\\]";
+  displayMode: boolean;
+  allowNewlines: boolean;
+};
+
+const LATEX_DELIMITERS: readonly LatexDelimiter[] = [
+  {
+    opening: "\\(",
+    closing: "\\)",
+    displayMode: false,
+    allowNewlines: false
+  },
+  {
+    opening: "\\[",
+    closing: "\\]",
+    displayMode: true,
+    allowNewlines: true
+  }
+];
+
+function findUnescapedSequence(
+  source: string,
+  sequence: string,
+  fromIndex: number,
+  allowNewlines: boolean
+): number | undefined {
+  let cursor = fromIndex;
+  while (cursor < source.length) {
+    const index = source.indexOf(sequence, cursor);
+    if (index === -1) return undefined;
+    if (!allowNewlines && source.slice(fromIndex, index).includes("\n")) {
+      return undefined;
+    }
+    if (!isEscapedAt(source, index)) return index;
+    cursor = index + sequence.length;
+  }
+  return undefined;
+}
+
+function tokenizeLatexMathAtStart(
+  source: string
+): Tokens.Generic | undefined {
+  const delimiter = LATEX_DELIMITERS.find(({ opening }) =>
+    source.startsWith(opening)
+  );
+  if (delimiter === undefined || isEscapedAt(source, 0)) return undefined;
+
+  const contentStart = delimiter.opening.length;
+  const closingIndex = findUnescapedSequence(
+    source,
+    delimiter.closing,
+    contentStart,
+    delimiter.allowNewlines
+  );
+  if (closingIndex === undefined) return undefined;
+
+  // Do not let an unmatched outer opener consume a later complete formula.
+  // The scanner will retry from the nested opener. Reject both same- and
+  // mixed-type nesting so delimiter text is never passed through as TeX.
+  const nestedOpening = LATEX_DELIMITERS.map(({ opening }) =>
+    findUnescapedSequence(
+      source,
+      opening,
+      contentStart,
+      delimiter.allowNewlines
+    )
+  )
+    .filter((index): index is number => index !== undefined)
+    .reduce<number | undefined>(
+      (earliest, index) =>
+        earliest === undefined || index < earliest ? index : earliest,
+      undefined
+    );
+  if (nestedOpening !== undefined && nestedOpening < closingIndex) {
+    return undefined;
+  }
+
+  const text = source.slice(contentStart, closingIndex).trim();
+  if (text === "") return undefined;
+  return {
+    type: "latexKatex",
+    raw: source.slice(0, closingIndex + delimiter.closing.length),
+    text,
+    displayMode: delimiter.displayMode
+  };
+}
+
+function findLatexMathStart(source: string): number | undefined {
+  let cursor = 0;
+  while (cursor < source.length) {
+    const index = source.indexOf("\\", cursor);
+    if (index === -1) return undefined;
+
+    const candidate = source.slice(index);
+    const isOpening = LATEX_DELIMITERS.some(({ opening }) =>
+      candidate.startsWith(opening)
+    );
+    if (!isEscapedAt(source, index)) {
+      const token = tokenizeLatexMathAtStart(candidate);
+      if (token !== undefined) return index;
+    }
+    // An empty or otherwise invalid closed pair is a literal unit. Skip its
+    // closing delimiter so it cannot become an opener of the opposite form.
+    if (isOpening) {
+      const delimiter = LATEX_DELIMITERS.find(({ opening }) =>
+        candidate.startsWith(opening)
+      );
+      if (delimiter !== undefined) {
+        const closingIndex = findUnescapedSequence(
+          candidate,
+          delimiter.closing,
+          delimiter.opening.length,
+          delimiter.allowNewlines
+        );
+        if (closingIndex !== undefined) {
+          cursor = index + closingIndex + delimiter.closing.length;
+          continue;
+        }
+      }
+    }
+    cursor = index + 1;
+  }
+  return undefined;
+}
+
+// Common OpenAI-compatible models emit LaTeX's \(...\) and \[...\]
+// delimiters instead of dollar delimiters. Intercept those forms before
+// Marked treats their backslashes as Markdown escapes, but retain the same
+// per-render placeholder and provenance-isolated KaTeX sanitizer path.
+mathExtension.extensions?.push({
+  name: "latexKatex",
+  level: "inline",
+  start(source) {
+    return findLatexMathStart(source);
+  },
+  tokenizer(source) {
+    return tokenizeLatexMathAtStart(source);
+  },
+  renderer: placeholderFor
+});
+
 // Treat an escaped dollar opener as literal syntax. A clearly paired escaped
 // construct is consumed whole; otherwise only the opener is consumed so an
 // unmatched escape cannot steal delimiters from valid math farther right.
