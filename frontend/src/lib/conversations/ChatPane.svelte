@@ -421,7 +421,7 @@
     <!-- The locked model is gone from the catalog: history stays readable -->
     <!-- but new messages are blocked server-side (409 model_unavailable). -->
     <p class="model-unavailable" role="status">
-      此对话锁定的模型 <code>{store.current.conversation.model}</code> 已从提供商目录中移除;历史消息仍可查看,但无法发送新消息。
+      此对话锁定的模型 <code>{store.current.conversation.model}</code> 已从提供商目录中移除；历史消息仍可查看，但无法发送新消息。
     </p>
   {/if}
 
