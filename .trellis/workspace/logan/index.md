@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
-- **Last Active**: 2026-08-10
+- **Total Sessions**: 5
+- **Last Active**: 2026-08-11
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~93 | Active |
+| `journal-1.md` | ~115 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-08-11 | Archive remaining tasks & LaTeX delimiter work | `302c506`, `7c4ef64` | `uifix` |
 | 4 | 2026-08-10 | 新建对话页 UI 升级:输入框模型选择器与分时段问候语 | `302c506` | `uifix` |
 | 3 | 2026-08-10 | 思维链折叠展示与空闲超时 | `bac3431`, `2ecd343`, `82f2010` | `uifix` |
 | 2 | 2026-08-10 | 修复同一行数学公式渲染 | `86b083a` | `uifix` |

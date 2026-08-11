@@ -91,3 +91,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: Archive remaining tasks & LaTeX delimiter work
+
+**Date**: 2026-08-11
+**Task**: Archive remaining tasks & LaTeX delimiter work
+**Branch**: `uifix`
+
+### Summary
+
+归档三个遗留 in_progress 任务(minimal-ai-chat-web-mvp / sidebar-redesign / ui-polish),并记录本次会话;工作树中仍有未提交的 render.ts LaTeX 分隔符改动与 trellis 脚手架文件。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `302c506` | (see git log) |
+| `7c4ef64` | (see git log) |
+
+### Status
+
+[OK] **Completed**
