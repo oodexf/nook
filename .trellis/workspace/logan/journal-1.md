@@ -113,3 +113,24 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 修复流式推理输出重复
+
+**Date**: 2026-08-13
+**Task**: 修复流式推理输出重复
+**Branch**: `dev`
+
+### Summary
+
+定位数据库 reasoning 重复由上游同时返回相同 reasoning_content/reasoning 引起；在 provider SSE 归一化边界精确去重，保留不同别名值拼接，添加回归测试并完成 workspace 测试、Clippy、release build 与独立审查。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `45533ac` | (see git log) |
+
+### Status
+
+[OK] **Completed**
