@@ -3,6 +3,8 @@ mod chat;
 mod config;
 mod conversations;
 mod generation_registry;
+#[cfg(test)]
+mod live_tests;
 mod model_catalog;
 mod models;
 mod provider;
@@ -434,7 +436,7 @@ mod tests {
             ),
             ("AI_BASE_URL", "https://api.example.com/v1".to_owned()),
             ("AI_API_KEY", "provider-key".to_owned()),
-            ("AI_DEFAULT_MODEL", "test-model".to_owned()),
+            ("AI_DEFAULT_MODEL", "gpt-5.6-luna".to_owned()),
         ]);
         let config = AppConfig::from_lookup(|key| values.get(key).cloned())
             .expect("test configuration should be valid");
