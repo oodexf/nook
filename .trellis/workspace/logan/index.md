@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-08-13
+- **Total Sessions**: 8
+- **Last Active**: 2026-08-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~159 | Active |
+| `journal-1.md` | ~181 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-08-14 | Secure HTML artifact rendering | `96c8a4c`, `1615064` | `dev` |
 | 7 | 2026-08-13 | 支持同一对话切换模型 | `9f9966d`, `dd01461`, `15ed947` | `dev` |
 | 6 | 2026-08-13 | 修复流式推理输出重复 | `45533ac` | `dev` |
 | 5 | 2026-08-11 | Archive remaining tasks & LaTeX delimiter work | `302c506`, `7c4ef64` | `uifix` |

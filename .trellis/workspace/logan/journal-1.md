@@ -157,3 +157,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: Secure HTML artifact rendering
+
+**Date**: 2026-08-14
+**Task**: Secure HTML artifact rendering
+**Branch**: `dev`
+
+### Summary
+
+Implemented DEEIX-style sanitized inline HTML and sandboxed HTML/CSS/JavaScript artifact previews with responsive workspace, security tests, full frontend quality gates, and bundle measurements.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `96c8a4c` | (see git log) |
+| `1615064` | (see git log) |
+
+### Status
+
+[OK] **Completed**
