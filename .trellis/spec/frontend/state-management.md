@@ -29,12 +29,11 @@ after login.
 ### Model catalog
 
 Owns normalized models, default, freshness/error state, and latest draft model.
-It does not mutate an existing conversation model.
+Existing-conversation current models remain conversation-store/server authority.
 
 ### Conversations
 
-Owns sidebar pages, current conversation, persisted messages, rename/delete
-results, and server reconciliation.
+Owns sidebar pages, current conversation, persisted messages, rename/delete/model-update results, and server reconciliation.
 
 ### Generation
 
@@ -105,7 +104,7 @@ Derive:
 - `canSend`;
 - `canCancel`;
 - `isEmptyConversation`;
-- `isModelLocked`;
+- `isCurrentModelAvailable`;
 - `shouldAutoFollow`;
 
 from authoritative state rather than storing parallel booleans that can drift.

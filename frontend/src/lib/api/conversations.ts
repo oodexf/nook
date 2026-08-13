@@ -256,6 +256,26 @@ export async function renameConversation(
   return conversation;
 }
 
+export async function updateConversationModel(
+  id: string,
+  model: string,
+  csrfToken: string,
+  signal?: AbortSignal
+): Promise<ConversationSummary> {
+  const payload = await apiRequest(
+    `/api/v1/conversations/${encodeURIComponent(id)}/model`,
+    {
+      method: "PUT",
+      csrfToken,
+      body: { model },
+      signal
+    }
+  );
+  const conversation = decodeConversationSummary(payload);
+  if (!conversation) throw invalidResponse();
+  return conversation;
+}
+
 export async function deleteConversation(
   id: string,
   csrfToken: string,

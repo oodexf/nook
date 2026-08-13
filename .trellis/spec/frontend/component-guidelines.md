@@ -38,11 +38,12 @@ App
     ToastRegion
 ```
 
-`ComposerModelSelector` (08-10) is only interactive before the first
-message: ChatPane injects it into the composer's `beforeSend` slot only in
-the draft view, where its trigger sits left of the send button and opens an
-upward popover owning the catalog states (loading, error, stale, refresh).
-Existing conversations show a non-editable model label.
+`ComposerModelSelector` (08-13) is interactive for drafts and existing
+conversations: draft selection remains local/persisted in the model store,
+while an existing conversation invokes the authenticated server model mutation
+and renders the server response as authority. The selector is disabled during
+an active generation. Existing conversations also keep a compact current-model
+label in the header; historical messages render their own persisted model.
 
 ## Props and Events
 
@@ -112,5 +113,5 @@ URL schemes are disabled.
 - forcing scroll-to-bottom after the user intentionally scrolls upward;
 - storing auth tokens in component or localStorage state;
 - using toast-only errors for a failed message;
-- allowing the model selector to change a non-empty conversation.
+- allowing model changes during an active generation.
 

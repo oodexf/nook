@@ -27,8 +27,8 @@ API, and test paths.
 - The frontend never receives the provider API key.
 - The raw instance access token is discarded after session exchange.
 - Unknown network payloads are decoded centrally before reaching components.
-- One draft conversation may select one model; a non-empty conversation only
-  displays its locked model.
+- A draft selects its model locally; an existing conversation exposes and persists its server-authoritative current model for the next generation.
+- Each historical assistant reply displays its immutable actual model snapshot.
 - Streaming updates cannot mutate a different conversation after navigation.
 - Markdown is sanitized before insertion into the DOM. Assistant formulas use
   conservative `$...$` inline syntax and closed, non-empty `$$...$$` display

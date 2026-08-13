@@ -2,6 +2,8 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { onSessionExpired } from "../api/client";
 import AppShell from "./AppShell.svelte";
 import { GREETING_POOLS } from "./greetings";
@@ -20,7 +22,7 @@ function summary(
   return {
     id,
     title: `对话 ${id}`,
-    model: "test-model",
+    model: TEST_MODEL_ID,
     created_at: 1786000000000,
     updated_at: 1786000001000,
     ...overrides
@@ -54,7 +56,7 @@ function detail(
         role: "assistant",
         content: "助手回复",
         status: "stopped",
-        model: "test-model",
+        model: TEST_MODEL_ID,
         error_code: null,
         created_at: 1786000000100,
         finished_at: 1786000000200
@@ -82,10 +84,10 @@ function catalog(
 ): Record<string, unknown> {
   return {
     models: [
-      { id: "test-model", label: "test-model" },
+      { id: TEST_MODEL_ID, label: TEST_MODEL_ID },
       { id: "model-b", label: "model-b" }
     ],
-    default_model: "test-model",
+    default_model: TEST_MODEL_ID,
     refreshed_at: 1786000000000,
     stale: false,
     refresh_error: null,
@@ -132,6 +134,7 @@ type Routes = {
   models?: RouteHandler;
   refresh?: RouteHandler;
   patch?: (id: string) => FetchResult;
+  updateModel?: (id: string, init?: RequestInit) => FetchResult;
   remove?: (id: string) => FetchResult;
   /** POST /api/v1/conversations/new/messages (draft first send). */
   draftSend?: RouteHandler;
@@ -168,6 +171,13 @@ function installRouter(routes: Routes): { requests: CapturedRequest[] } {
     if (url === "/api/v1/conversations/new/messages" && method === "POST") {
       return Promise.resolve(
         routes.draftSend?.() ?? jsonResponse(404, notFound())
+      );
+    }
+    const modelMatch = /^\/api\/v1\/conversations\/([^/?]+)\/model$/.exec(url);
+    if (modelMatch && method === "PUT") {
+      const id = decodeURIComponent(modelMatch[1] ?? "");
+      return Promise.resolve(
+        routes.updateModel?.(id, init) ?? jsonResponse(404, notFound())
       );
     }
     const conversationMatch = /^\/api\/v1\/conversations\/([^/?]+)$/.exec(url);
@@ -322,9 +332,9 @@ describe("AppShell", () => {
     expect(markdown?.textContent).toContain("助手回复");
     // Model and status exactly as the contract exposes them (localized label).
     expect(byText(container, ".status", "已停止")).toBeDefined();
-    expect(byText(container, "code.model", "test-model")).toBeDefined();
+    expect(byText(container, "code.model", TEST_MODEL_ID)).toBeDefined();
     // Locked model label in the header.
-    expect(byText(container, ".locked-model", "test-model")).toBeDefined();
+    expect(byText(container, ".locked-model", TEST_MODEL_ID)).toBeDefined();
   });
 
   it("loads the next page through the load-more button", async () => {
@@ -1552,7 +1562,7 @@ describe("AppShell model flows", () => {
     // finishes loading.
     const trigger = await vi.waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(".model-trigger");
-      expect(found?.textContent).toContain("test-model");
+      expect(found?.textContent).toContain(TEST_MODEL_ID);
       return found as HTMLButtonElement;
     });
 
@@ -1561,7 +1571,7 @@ describe("AppShell model flows", () => {
     );
     // The trigger is accessibly named with the current selection.
     expect(trigger.getAttribute("aria-label")).toContain("选择模型");
-    expect(trigger.getAttribute("aria-label")).toContain("test-model");
+    expect(trigger.getAttribute("aria-label")).toContain(TEST_MODEL_ID);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
     // Opening the popover lists every catalog model with the default marked.
@@ -1576,7 +1586,7 @@ describe("AppShell model flows", () => {
       popover.querySelectorAll<HTMLButtonElement>(".model-option")
     );
     expect(options.map((option) => option.textContent?.trim())).toEqual([
-      "test-model",
+      TEST_MODEL_ID,
       "model-b"
     ]);
     expect(
@@ -1590,7 +1600,7 @@ describe("AppShell model flows", () => {
 
     const trigger = await vi.waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(".model-trigger");
-      expect(found?.textContent).toContain("test-model");
+      expect(found?.textContent).toContain(TEST_MODEL_ID);
       return found as HTMLButtonElement;
     });
     trigger.click();
@@ -1614,7 +1624,7 @@ describe("AppShell model flows", () => {
 
     const trigger = await vi.waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(".model-trigger");
-      expect(found?.textContent).toContain("test-model");
+      expect(found?.textContent).toContain(TEST_MODEL_ID);
       return found as HTMLButtonElement;
     });
     trigger.click();
@@ -1644,7 +1654,7 @@ describe("AppShell model flows", () => {
 
     trigger.click();
     const option = await vi.waitFor(() => {
-      const found = byText(container, ".model-option", "test-model");
+      const found = byText(container, ".model-option", TEST_MODEL_ID);
       expect(found).toBeDefined();
       return found as HTMLElement;
     });
@@ -1652,11 +1662,11 @@ describe("AppShell model flows", () => {
 
     await vi.waitFor(() => {
       expect(window.localStorage.getItem("chat.draft-model-id")).toBe(
-        "test-model"
+        TEST_MODEL_ID
       );
     });
     // A successful pick applies to the trigger and closes the popover.
-    expect(trigger.textContent).toContain("test-model");
+    expect(trigger.textContent).toContain(TEST_MODEL_ID);
     expect(container.querySelector(".model-popover")).toBeNull();
   });
 
@@ -1836,7 +1846,7 @@ describe("AppShell model flows", () => {
     expect(container.querySelector(".model-option")).not.toBeNull();
   });
 
-  it("never shows the editable selector on an existing conversation", async () => {
+  it("shows the editable selector on an existing conversation", async () => {
     installRouter({
       list: () => page([summary(ID_A)], null),
       detail: (id) => jsonResponse(200, detail(id))
@@ -1851,10 +1861,40 @@ describe("AppShell model flows", () => {
     await vi.waitFor(() => {
       expect(container.querySelector(".messages")).not.toBeNull();
     });
-    // Locked label only; the composer selector and refresh action are absent.
-    expect(byText(container, ".locked-model", "test-model")).toBeDefined();
-    expect(container.querySelector(".model-trigger")).toBeNull();
+    // The persisted current model remains visible and selectable in the composer.
+    expect(byText(container, ".locked-model", TEST_MODEL_ID)).toBeDefined();
+    expect(container.querySelector(".model-trigger")).not.toBeNull();
     expect(container.querySelector(".refresh-button")).toBeNull();
+  });
+
+  it("persists a model switch for an existing conversation", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id)),
+      updateModel: (id) =>
+        jsonResponse(200, summary(id, { model: "model-b", updated_at: 1786000004000 }))
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+    byText(container, ".item", `对话 ${ID_A}`)?.click();
+    await vi.waitFor(() => {
+      expect(container.querySelector(".messages")).not.toBeNull();
+      expect(container.querySelector<HTMLButtonElement>(".model-trigger")?.disabled).toBe(false);
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(".model-trigger") as HTMLButtonElement;
+    trigger.click();
+    await vi.waitFor(() => {
+      expect(byText(container, ".model-option", "model-b")).toBeDefined();
+    });
+    byText(container, ".model-option", "model-b")?.click();
+    await vi.waitFor(() => {
+      expect(byText(container, ".locked-model", "model-b")).toBeDefined();
+    });
+    const request = requests.find((entry) => entry.init?.method === "PUT");
+    expect(request?.url).toBe(`/api/v1/conversations/${ID_A}/model`);
+    expect(request?.init?.body).toBe(JSON.stringify({ model: "model-b" }));
   });
 
   it("explains a removed locked model without hiding history", async () => {
@@ -1875,10 +1915,30 @@ describe("AppShell model flows", () => {
         byText(container, ".model-unavailable", "已从提供商目录中移除")
       ).toBeDefined();
     });
-    // The locked label is retained and history stays readable.
+    // The unavailable model remains visible while the selector permits recovery.
     expect(byText(container, ".locked-model", "removed-model")).toBeDefined();
     expect(container.querySelector(".messages")).not.toBeNull();
-    expect(container.querySelector(".model-trigger")).toBeNull();
+    expect(container.querySelector(".model-trigger")).not.toBeNull();
+  });
+
+  it("recovers a removed current model to the newest available historical model", async () => {
+    const { requests } = installRouter({
+      list: () => page([summary(ID_A)], null),
+      detail: (id) => jsonResponse(200, detail(id, "普通消息", { model: "removed-model" })),
+      models: () => jsonResponse(200, catalog()),
+      updateModel: (id) => jsonResponse(200, summary(id, { model: TEST_MODEL_ID }))
+    });
+    mountShell();
+    await vi.waitFor(() => {
+      expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
+    });
+    byText(container, ".item", `对话 ${ID_A}`)?.click();
+
+    await vi.waitFor(() => {
+      expect(byText(container, ".locked-model", TEST_MODEL_ID)).toBeDefined();
+    });
+    const request = requests.find((entry) => entry.init?.method === "PUT");
+    expect(request?.init?.body).toBe(JSON.stringify({ model: TEST_MODEL_ID }));
   });
 
   it("does not claim a locked model is unavailable while the catalog is still loading", async () => {
@@ -1900,14 +1960,14 @@ describe("AppShell model flows", () => {
       expect(container.querySelector(".messages")).not.toBeNull();
     });
 
-    // Catalog unresolved: no unavailable claim, no selector either.
+    // Catalog unresolved: no unavailable claim; selector shows the persisted ID.
     expect(container.querySelector(".model-unavailable")).toBeNull();
-    expect(container.querySelector(".model-trigger")).toBeNull();
+    expect(container.querySelector(".model-trigger")).not.toBeNull();
 
     resolveModels(jsonResponse(200, catalog()));
     await vi.waitFor(() => {
       expect(container.querySelector(".model-unavailable")).toBeNull();
     });
-    expect(byText(container, ".locked-model", "test-model")).toBeDefined();
+    expect(byText(container, ".locked-model", TEST_MODEL_ID)).toBeDefined();
   });
 });

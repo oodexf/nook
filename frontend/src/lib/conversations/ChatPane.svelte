@@ -70,6 +70,8 @@
   let isDeleteBusy = $state(false);
 
   let composerValue = $state("");
+  let modelRecoveryKey = $state<string | null>(null);
+  let modelRecoveryError = $state<string | null>(null);
 
   // --- Unsent draft persistence (F-08) -------------------------------
   // Keyed by the visible view: the server conversation ID, or "new" for
@@ -206,11 +208,11 @@
       : []
   );
 
-  // The composer model selector appears only in the draft view: once a
-  // conversation exists (or its first stream is in flight) the model is
-  // locked and shown in the header instead.
-  const showDraftModelSelector = $derived(
-    store.detailStatus === "idle" && !streamVisible
+  // The model selector stays available in drafts and existing conversations.
+  // Existing selections are server-authoritative and disabled during streams.
+  const showModelSelector = $derived(
+    (store.detailStatus === "idle" && !streamVisible) ||
+      (store.detailStatus === "ready" && store.current !== null)
   );
 
   const lockedModelRemoved = $derived(
@@ -220,6 +222,52 @@
       !modelStore.isModelAvailable(store.current.conversation.model)
   );
 
+  const selectedConversationId = $derived(store.current?.conversation.id ?? null);
+  const isUpdatingSelectedModel = $derived(
+    store.isUpdatingModel(selectedConversationId)
+  );
+
+  $effect(() => {
+    const detail = store.current;
+    if (
+      store.detailStatus !== "ready" ||
+      detail === null ||
+      modelStore.status !== "ready" ||
+      modelStore.isModelAvailable(detail.conversation.model)
+    ) {
+      modelRecoveryKey = null;
+      modelRecoveryError = null;
+      return;
+    }
+    const fallback = [...detail.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          message.model !== null &&
+          modelStore.isModelAvailable(message.model)
+      )?.model;
+    if (fallback === undefined || fallback === null) return;
+    const key = `${detail.conversation.id}:${detail.conversation.model}:${fallback}`;
+    if (
+      modelRecoveryKey === key ||
+      generation.isBusy ||
+      store.isUpdatingModel(detail.conversation.id)
+    ) return;
+    modelRecoveryKey = key;
+    modelRecoveryError = null;
+    const conversationId = detail.conversation.id;
+    void store
+      .updateModel(conversationId, fallback, csrfToken)
+      .catch((error: unknown) => {
+        // A response owned by a conversation left during the request must not
+        // surface an error in the newly opened view.
+        if (store.selectedId === conversationId) {
+          modelRecoveryError = errorMessageOf(error);
+        }
+      });
+  });
+
   // canSend gating (derived, not stored): the pane must be in a sendable
   // view, a draft must have a selected catalog model, and a locked
   // conversation whose model left the catalog cannot send.
@@ -227,7 +275,8 @@
     (store.detailStatus !== "ready" && store.detailStatus !== "idle") ||
       (store.detailStatus === "idle" &&
         (modelStore.status !== "ready" || modelStore.draftModelId === null)) ||
-      lockedModelRemoved
+      lockedModelRemoved ||
+      isUpdatingSelectedModel
   );
 
   async function handleSend(content: string) {
@@ -251,6 +300,16 @@
     ) {
       composerValue = content;
     }
+  }
+
+  async function handleModelSelect(model: string): Promise<void> {
+    const current = store.current;
+    if (
+      current === null ||
+      generation.isBusy ||
+      store.isUpdatingModel(current.conversation.id)
+    ) return;
+    await store.updateModel(current.conversation.id, model, csrfToken);
   }
 
   function handleStop() {
@@ -418,10 +477,9 @@
   </header>
 
   {#if store.detailStatus === "ready" && store.current && !modelStore.isModelAvailable(store.current.conversation.model) && modelStore.status === "ready"}
-    <!-- The locked model is gone from the catalog: history stays readable -->
-    <!-- but new messages are blocked server-side (409 model_unavailable). -->
+    <!-- The current model is gone: history stays readable while recovery runs. -->
     <p class="model-unavailable" role="status">
-      此对话锁定的模型 <code>{store.current.conversation.model}</code> 已从提供商目录中移除；历史消息仍可查看，但无法发送新消息。
+      当前模型 <code>{store.current.conversation.model}</code> 已从提供商目录中移除；正在尝试恢复最近仍可用的历史模型，也可手动选择。
     </p>
   {/if}
 
@@ -502,6 +560,11 @@
   >
   </div>
 
+  {#if modelRecoveryError}
+    <p class="model-recovery-error" role="alert">
+      无法恢复可用模型：{modelRecoveryError}
+    </p>
+  {/if}
   {#if store.detailStatus !== "error"}
     <Composer
       bind:value={composerValue}
@@ -512,8 +575,17 @@
       onStop={handleStop}
     >
       {#snippet beforeSend()}
-        {#if showDraftModelSelector}
-          <ComposerModelSelector store={modelStore} {csrfToken} />
+        {#if showModelSelector}
+          {#key selectedConversationId ?? "draft"}
+            <ComposerModelSelector
+              store={modelStore}
+              {csrfToken}
+              selectedModelId={store.current?.conversation.model ?? null}
+              selectionScope={selectedConversationId}
+              disabled={generation.isBusy || isUpdatingSelectedModel}
+              onSelect={store.current === null ? undefined : handleModelSelect}
+            />
+          {/key}
         {/if}
       {/snippet}
     </Composer>

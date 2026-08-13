@@ -32,7 +32,7 @@ executes the complete frontend gate.
 - SSE chunk and Unicode handling;
 - state reducers/transitions;
 - localStorage validation;
-- model fallback and locking logic;
+- existing-conversation model mutation and historical fallback logic;
 - Markdown sanitizer configuration.
 
 ### Component
@@ -48,7 +48,7 @@ executes the complete frontend gate.
 
 - first visit, invalid login, valid login, sign-out;
 - session-only and remembered authentication;
-- model fetch/select/lock;
+- model fetch/select/persist/switch lockout;
 - stream, cancel, partial output, retry;
 - refresh and container-backed history;
 - rename and delete;
@@ -113,7 +113,7 @@ change.
 - raw `{@html}` outside the single sanitized Markdown component;
 - token or CSRF persistence;
 - catch-all global store;
-- model changes on non-empty conversations;
+- model changes during an active generation;
 - toast-only message failure;
 - auto-scroll that overrides deliberate user scrolling;
 - visual-only icon buttons;

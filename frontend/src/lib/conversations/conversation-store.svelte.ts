@@ -19,7 +19,8 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
-  renameConversation
+  renameConversation,
+  updateConversationModel
 } from "../api/conversations";
 import type {
   ConversationDetail,
@@ -40,6 +41,8 @@ export type ConversationStore = {
   readonly detailStatus: ConversationDetailStatus;
   readonly detailError: string | null;
   readonly current: ConversationDetail | null;
+  /** True while this conversation has a server-authoritative model mutation pending. */
+  isUpdatingModel(id: string | null): boolean;
   /** Loads the first page; reopens the remembered selection when possible. */
   load(): Promise<void>;
   /** Deterministic next-page fetch; the cursor only advances on success. */
@@ -65,6 +68,12 @@ export type ConversationStore = {
   rename(
     id: string,
     title: string,
+    csrfToken: string
+  ): Promise<ConversationSummary>;
+  /** Throws `ApiError` on failure; persists and reconciles current model. */
+  updateModel(
+    id: string,
+    model: string,
     csrfToken: string
   ): Promise<ConversationSummary>;
   /** Throws `ApiError` on failure; reconciles list + current on success. */
@@ -146,6 +155,7 @@ export function createConversationStore(): ConversationStore {
   let detailStatus = $state<ConversationDetailStatus>("idle");
   let detailError = $state<string | null>(null);
   let current = $state<ConversationDetail | null>(null);
+  let updatingModelConversationIds = $state<string[]>([]);
 
   function clearSelection(): void {
     selectedId = null;
@@ -211,6 +221,9 @@ export function createConversationStore(): ConversationStore {
     },
     get current() {
       return current;
+    },
+    isUpdatingModel(id: string | null): boolean {
+      return id !== null && updatingModelConversationIds.includes(id);
     },
 
     async load(): Promise<void> {
@@ -308,6 +321,40 @@ export function createConversationStore(): ConversationStore {
         current = { ...current, conversation: updated };
       }
       return updated;
+    },
+
+    async updateModel(
+      id: string,
+      model: string,
+      csrfToken: string
+    ): Promise<ConversationSummary> {
+      if (updatingModelConversationIds.includes(id)) {
+        throw new ApiError("http", "模型切换正在保存，请稍候。", {
+          status: 409,
+          code: "model_update_in_progress"
+        });
+      }
+      updatingModelConversationIds = [...updatingModelConversationIds, id];
+      try {
+        const updated = await updateConversationModel(id, model, csrfToken);
+        items = sortConversations(
+          items.map((item) => (item.id === id ? updated : item))
+        );
+        // Navigation while the mutation is in flight must not replace the
+        // newly opened conversation with the old response.
+        if (
+          selectedId === id &&
+          current !== null &&
+          current.conversation.id === id
+        ) {
+          current = { ...current, conversation: updated };
+        }
+        return updated;
+      } finally {
+        updatingModelConversationIds = updatingModelConversationIds.filter(
+          (conversationId) => conversationId !== id
+        );
+      }
     },
 
     async remove(id: string, csrfToken: string): Promise<void> {
