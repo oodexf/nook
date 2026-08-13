@@ -131,8 +131,14 @@ Use a local deterministic fake provider for:
 
 - Upstream deltas may carry thinking content as `reasoning_content`
   (DeepSeek/Qwen style) or `reasoning` (OpenRouter style); the provider
-  adapter accepts both, concatenates them when a chunk carries both, and
-  emits `ChatStreamEvent::ReasoningDelta` before any content delta.
+  adapter accepts both and emits `ChatStreamEvent::ReasoningDelta` before any
+  content delta. Some compatibility layers populate both aliases with the
+  same per-chunk value: exact-equal values must be emitted once, while distinct
+  values are concatenated in `reasoning_content` then `reasoning` order. Do not
+  use fuzzy, substring, prefix, or cross-chunk deduplication because those can
+  remove intentional model output. Provider decoder tests must cover each
+  single alias, equal dual aliases, distinct dual aliases, and empty reasoning
+  alongside non-empty answer content.
 - The chat request timeout is an **idle** timeout, not a total one: the
   reqwest client carries no total `.timeout()`; `send()` (response
   headers) and every gap between upstream chunks are each bounded by
