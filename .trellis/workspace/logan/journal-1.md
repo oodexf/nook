@@ -134,3 +134,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 支持同一对话切换模型
+
+**Date**: 2026-08-13
+**Task**: 支持同一对话切换模型
+**Branch**: `dev`
+
+### Summary
+
+实现同一对话的服务端持久化模型切换、生成期间并发保护、精确错误分类、跨模型上下文与重试/幂等语义、模型下线历史回退，以及 Svelte 选择器和状态同步；新增 v2→v3 迁移与跨层回归测试，完整 Rust/前端质量门及独立复审通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f9966d` | (see git log) |
+| `dd01461` | (see git log) |
+| `15ed947` | (see git log) |
+
+### Status
+
+[OK] **Completed**
