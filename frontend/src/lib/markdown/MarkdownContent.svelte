@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createCopyControl } from "../clipboard/copy-control";
+  import { extractArtifacts, type ChatArtifact } from "../artifacts/artifacts";
   import { renderMarkdown } from "./render";
 
   /**
@@ -25,12 +26,18 @@
      * persisted/terminal output keeps the controls.
      */
     suppressCodeCopy?: boolean;
+    artifactMessageId?: string | null;
+    artifactsSettled?: boolean;
+    onOpenArtifact?: ((artifact: ChatArtifact, trigger: HTMLButtonElement) => void) | null;
   };
 
   const {
     content,
     ariaLabel = "消息内容",
-    suppressCodeCopy = false
+    suppressCodeCopy = false,
+    artifactMessageId = null,
+    artifactsSettled = true,
+    onOpenArtifact = null
   }: Props = $props();
 
   const COPY_LABEL = "复制代码";
@@ -39,12 +46,29 @@
 
   // Parsed + sanitized exactly once per distinct content value.
   const html = $derived(renderMarkdown(content));
+  const artifacts = $derived(
+    artifactMessageId === null
+      ? []
+      : extractArtifacts(content, artifactMessageId, artifactsSettled)
+  );
 
   function codeTextOf(pre: HTMLElement): string {
     return pre.querySelector("code")?.textContent ?? pre.textContent ?? "";
   }
 
-  function attachCopyButton(pre: HTMLElement): void {
+  function attachWholeMessageArtifact(rootElement: HTMLElement): void {
+    if (rootElement.querySelector(":scope > .artifact-inline-action") !== null) return;
+    const artifact = artifacts.find((candidate) => candidate.codeBlockIndex === null);
+    if (artifact === undefined || onOpenArtifact === null) return;
+    const preview = document.createElement("button");
+    preview.type = "button";
+    preview.className = "artifact-inline-action";
+    preview.textContent = "打开 HTML 预览";
+    preview.addEventListener("click", () => onOpenArtifact(artifact, preview));
+    rootElement.appendChild(preview);
+  }
+
+  function attachCodeActions(pre: HTMLElement, codeBlockIndex: number): void {
     if (pre.querySelector(":scope > .copy-slot") !== null) return;
     // The same shared control as message-level copy (Phase I-02): compact
     // icon button with accessible name and polite copied/failed feedback.
@@ -56,6 +80,18 @@
     });
     const slot = document.createElement("span");
     slot.className = "copy-slot";
+    const artifact = artifacts.find(
+      (candidate) => candidate.codeBlockIndex === codeBlockIndex
+    );
+    if (artifact !== undefined && onOpenArtifact !== null) {
+      const preview = document.createElement("button");
+      preview.type = "button";
+      preview.className = "artifact-preview-button";
+      preview.textContent = "预览";
+      preview.setAttribute("aria-label", `预览 ${artifact.kind} Artifact`);
+      preview.addEventListener("click", () => onOpenArtifact(artifact, preview));
+      slot.append(preview);
+    }
     slot.append(control.button, control.status);
     pre.appendChild(slot);
   }
@@ -66,10 +102,14 @@
   // attaches the controls to the fresh nodes.
   $effect(() => {
     void html;
+    void artifacts;
     const element = root;
     if (!element || suppressCodeCopy) return;
+    attachWholeMessageArtifact(element);
+    let codeBlockIndex = 0;
     for (const pre of element.querySelectorAll<HTMLElement>("pre")) {
-      attachCopyButton(pre);
+      attachCodeActions(pre, codeBlockIndex);
+      codeBlockIndex += 1;
     }
   });
 </script>
@@ -79,9 +119,13 @@
 
 <style>
   .markdown {
+    position: relative;
+    isolation: isolate;
+    contain: layout paint;
     min-width: 0;
     max-width: 100%;
     line-height: 1.7;
+    overflow: hidden;
     overflow-wrap: anywhere;
   }
 
@@ -231,10 +275,17 @@
      placement is local. Hidden until the block is hovered or the button
      itself receives keyboard focus (focus-within), so the code stays
      flush while the control remains keyboard reachable. */
-  .markdown :global(pre .copy-button) {
+  .markdown :global(pre > .copy-slot) {
     position: absolute;
     top: var(--space-2);
     right: var(--space-2);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .markdown :global(pre .copy-button) {
+    position: relative;
     border-color: var(--border);
     background: var(--surface);
     opacity: 0;
@@ -245,8 +296,48 @@
       color var(--motion-fast);
   }
 
+  .markdown :global(.artifact-inline-action) {
+    min-height: var(--touch-target);
+    margin-top: var(--space-3);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 0.82rem;
+  }
+
+  .markdown :global(.artifact-inline-action:hover),
+  .markdown :global(.artifact-inline-action:focus-visible) {
+    border-color: var(--border-strong);
+    background: var(--surface-muted);
+  }
+
+  .markdown :global(.artifact-preview-button) {
+    min-height: var(--compact-action-size);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    background: var(--surface);
+    font-size: 0.75rem;
+    opacity: 0;
+    transition:
+      opacity var(--motion-fast),
+      border-color var(--motion-fast),
+      color var(--motion-fast);
+  }
+
   .markdown :global(pre:hover .copy-button),
-  .markdown :global(pre:focus-within .copy-button) {
+  .markdown :global(pre:focus-within .copy-button),
+  .markdown :global(pre:hover .artifact-preview-button),
+  .markdown :global(pre:focus-within .artifact-preview-button) {
     opacity: 1;
+  }
+
+  .markdown :global(.artifact-preview-button:hover),
+  .markdown :global(.artifact-preview-button:focus-visible) {
+    border-color: var(--border-strong);
+    color: var(--text);
   }
 </style>

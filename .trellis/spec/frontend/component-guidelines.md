@@ -104,8 +104,21 @@ in-memory `trust: false` KaTeX fragments pass through the separate exact
 KaTeX sanitizer and replace surviving placeholders. Do not add KaTeX layout
 permissions to the ordinary Markdown policy or create another `{@html}` path.
 
-Raw HTML, iframes, unsafe SVG, remote embeds, event attributes, and dangerous
-URL schemes are disabled.
+Raw executable HTML, source iframes, unsafe SVG, remote embeds, event attributes,
+and dangerous URL schemes remain disabled in the Markdown lane. Assistant static
+HTML may use only the explicit container/tag/attribute list and the per-declaration
+style sanitizer in `markdown/render.ts`; its root must retain layout/paint
+containment and overflow clipping. Do not merge that style policy with the KaTeX
+style lane.
+
+Interactive HTML/CSS/JavaScript is an artifact, never Markdown DOM. Previewable
+source is extracted by `artifacts/artifacts.ts`, opened explicitly from a real DOM
+button injected after Markdown sanitization, and rendered by
+`ArtifactWorkspace.svelte` in `<iframe srcdoc>` with exactly
+`sandbox="allow-scripts"`, `referrerpolicy="no-referrer"`, the exported denied
+Permissions Policy, and the offline CSP built into the preview document. Never
+add `allow-same-origin`, network permissions, auth/app-state `postMessage`, or a
+second `{@html}` boundary. Unclosed streaming fences remain source-only.
 
 ## Common Failure Modes
 

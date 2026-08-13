@@ -2,6 +2,11 @@
   import { tick, untrack } from "svelte";
 
   import { errorMessageOf } from "../api/client";
+  import ArtifactWorkspace from "../artifacts/ArtifactWorkspace.svelte";
+  import {
+    extractArtifacts,
+    type ChatArtifact
+  } from "../artifacts/artifacts";
   import ArrowDownIcon from "../components/ArrowDownIcon.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import MenuIcon from "../components/MenuIcon.svelte";
@@ -55,9 +60,29 @@
   }: Props = $props();
 
   const MAX_TITLE_LENGTH = 200;
+  const ARTIFACT_MIN_RATIO = 1 / 3;
+  const ARTIFACT_MAX_RATIO = 1 / 2;
 
   let contentRegion = $state<HTMLElement | null>(null);
+  let workspaceRegion = $state<HTMLElement | null>(null);
+  let artifactTrigger = $state<HTMLButtonElement | null>(null);
+  let activeArtifactId = $state<string | null>(null);
+  let artifactRatio = $state<number | null>(null);
   let renameButton = $state<HTMLButtonElement | null>(null);
+
+  const artifacts = $derived.by(() =>
+    (store.current?.messages ?? []).flatMap((message) =>
+      message.role === "assistant" && message.status !== "streaming"
+        ? extractArtifacts(message.content, message.id, true)
+        : []
+    )
+  );
+  const activeArtifact = $derived(
+    activeArtifactId === null
+      ? null
+      : (artifacts.find((artifact) => artifact.id === activeArtifactId) ?? null)
+  );
+  const resolvedArtifactRatio = $derived(artifactRatio ?? 0.42);
   let renameInput = $state<HTMLInputElement | null>(null);
 
   let isRenaming = $state(false);
@@ -141,7 +166,62 @@
     void store.selectedId;
     followOutput = true;
     newOutputBelow = false;
+    activeArtifactId = null;
+    artifactTrigger = null;
   });
+
+  $effect(() => {
+    if (activeArtifactId !== null && activeArtifact === null) {
+      activeArtifactId = null;
+    }
+  });
+
+  function openArtifact(
+    artifact: ChatArtifact,
+    trigger: HTMLButtonElement
+  ): void {
+    artifactTrigger = trigger;
+    activeArtifactId = artifact.id;
+  }
+
+  function closeArtifact(): void {
+    activeArtifactId = null;
+    void tick().then(() => artifactTrigger?.focus({ preventScroll: true }));
+  }
+
+  function clampArtifactRatio(value: number): number {
+    return Math.min(ARTIFACT_MAX_RATIO, Math.max(ARTIFACT_MIN_RATIO, value));
+  }
+
+  function handleArtifactResize(event: PointerEvent): void {
+    const region = workspaceRegion;
+    if (region === null || event.button !== 0) return;
+    const handle = event.currentTarget;
+    if (!(handle instanceof HTMLElement)) return;
+    handle.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent) => {
+      const bounds = region.getBoundingClientRect();
+      if (bounds.width <= 0) return;
+      artifactRatio = clampArtifactRatio(
+        (bounds.right - moveEvent.clientX) / bounds.width
+      );
+    };
+    const finish = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  }
+
+  function handleArtifactResizeKey(event: KeyboardEvent): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? 1 : -1;
+    artifactRatio = clampArtifactRatio(resolvedArtifactRatio + direction * 0.02);
+  }
 
   // React to content growth: follow when pinned to the bottom, otherwise
   // raise the new-output indicator for incoming stream content.
@@ -399,7 +479,14 @@
   }
 </script>
 
-<section class="pane" aria-label="对话内容">
+<section
+  class="pane"
+  class:artifact-open={activeArtifact !== null}
+  aria-label="对话内容"
+  bind:this={workspaceRegion}
+  style:--artifact-ratio={`${resolvedArtifactRatio * 100}%`}
+>
+  <div class="chat-column">
   <header class="pane-header">
     {#if showSidebarRestore && onRestoreSidebar !== null}
       <button
@@ -525,6 +612,7 @@
               {excludedMessageIds}
               onRetry={handleRetry}
               retryDisabled={generation.isBusy}
+              onOpenArtifact={openArtifact}
             />
           {/if}
         {/if}
@@ -590,6 +678,30 @@
       {/snippet}
     </Composer>
   {/if}
+  </div>
+
+  {#if activeArtifact !== null}
+    <button
+      type="button"
+      class="artifact-resizer"
+      aria-label="调整 Artifact 面板宽度"
+      aria-valuemin={Math.round(ARTIFACT_MIN_RATIO * 100)}
+      aria-valuemax={Math.round(ARTIFACT_MAX_RATIO * 100)}
+      aria-valuenow={Math.round(resolvedArtifactRatio * 100)}
+      role="slider"
+      onpointerdown={handleArtifactResize}
+      onkeydown={handleArtifactResizeKey}
+      ondblclick={() => (artifactRatio = null)}
+    ></button>
+    <div class="artifact-column">
+      <ArtifactWorkspace
+        artifact={activeArtifact}
+        {artifacts}
+        onSelect={(artifactId) => (activeArtifactId = artifactId)}
+        onClose={closeArtifact}
+      />
+    </div>
+  {/if}
 </section>
 
 {#if isDeleteOpen && store.current}
@@ -609,11 +721,43 @@
 
 <style>
   .pane {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--bg);
+  }
+
+  .pane.artifact-open {
+    grid-template-columns: minmax(0, calc(100% - var(--artifact-ratio))) 8px minmax(0, var(--artifact-ratio));
+  }
+
+  .chat-column,
+  .artifact-column {
     display: flex;
     min-width: 0;
     min-height: 0;
     flex-direction: column;
-    background: var(--bg);
+  }
+
+  .artifact-resizer {
+    z-index: 5;
+    width: 8px;
+    min-width: 8px;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    background: var(--surface-muted);
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .artifact-resizer:hover,
+  .artifact-resizer:focus-visible {
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-muted));
+    outline: none;
   }
 
   .pane-header {
@@ -862,6 +1006,25 @@
   }
 
   @media (max-width: 760px) {
+    .pane.artifact-open {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pane.artifact-open .chat-column {
+      visibility: hidden;
+    }
+
+    .artifact-column {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      background: var(--surface);
+    }
+
+    .artifact-resizer {
+      display: none;
+    }
+
     .menu-button {
       display: inline-flex;
     }

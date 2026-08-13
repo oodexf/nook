@@ -88,8 +88,22 @@ untrusted TeX URL/HTML commands under trust:false
 
 Formula tests must also prove the positive isolated lane retains visual KaTeX,
 MathML accessibility, verified numeric layout style, and required SVG/path
-geometry. Never broaden ordinary Markdown style/SVG/URL permissions to make a
-formula render.
+geometry. Never broaden ordinary Markdown SVG/URL permissions to make a formula
+render, and never let the approved static-HTML style sanitizer replace the exact
+KaTeX style validator.
+
+HTML artifact tests must assert all of these concrete points:
+
+- extraction preserves code-block order and leaves unclosed stream fences inert;
+- ordinary code is not classified as an artifact;
+- the platform CSP appears before user head content;
+- iframe `sandbox` equals `allow-scripts` and omits `allow-same-origin`;
+- `no-referrer` and denied Permissions Policy are present;
+- CSS/JavaScript wrappers escape closing style/script sequences;
+- static inline HTML drops executable tags/attributes and unsafe style values;
+- Markdown containment prevents fixed/z-index/transform/oversized content from
+  escaping its message region;
+- switching conversations clears active artifact state.
 
 Browser bundle inspection confirms provider credentials and instance token are
 absent.
