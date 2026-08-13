@@ -90,7 +90,7 @@ impl ModelCatalogService {
     pub async fn validate_available(&self, model_id: &str) -> Result<(), ModelCatalogError> {
         let snapshot = self.get(CachePolicy::UseFresh).await?;
         validate_model_available(&snapshot.catalog, model_id)
-            .map_err(|_| ModelCatalogError::Unavailable)
+            .map_err(|_| ModelCatalogError::SelectedModelUnavailable)
     }
 
     async fn refresh_provider(&self) -> Result<ModelCatalog, ModelCatalogError> {

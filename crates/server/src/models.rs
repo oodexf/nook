@@ -80,11 +80,12 @@ fn to_response(snapshot: CatalogSnapshot, request_id: &RequestId) -> ModelCatalo
     }
 }
 
-fn error_response(error: ModelCatalogError, request_id: &RequestId) -> Response {
+pub(crate) fn error_response(error: ModelCatalogError, request_id: &RequestId) -> Response {
     let status = match error {
         ModelCatalogError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
         ModelCatalogError::Timeout => StatusCode::GATEWAY_TIMEOUT,
         ModelCatalogError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        ModelCatalogError::SelectedModelUnavailable => StatusCode::CONFLICT,
         ModelCatalogError::Unauthorized => StatusCode::BAD_GATEWAY,
         ModelCatalogError::InvalidResponse
         | ModelCatalogError::EmptyCatalog
@@ -376,7 +377,7 @@ mod tests {
         assert!(state.models.validate_available("model-a").await.is_ok());
         assert_eq!(
             state.models.validate_available("removed-model").await,
-            Err(chat_core::model::ModelCatalogError::Unavailable)
+            Err(chat_core::model::ModelCatalogError::SelectedModelUnavailable)
         );
         // Historical conversation reads use storage only; catalog validation is
         // deliberately called only by future generation/create flows.

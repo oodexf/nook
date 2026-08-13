@@ -77,9 +77,9 @@ slice. Add a round-trip contract test for every event variant.
 - `client_message_id` is required for message creation.
 - A repeated ID resolves to the existing logical result and does not insert
   duplicate messages.
-- A conversation with an active generation rejects another generation.
-- A non-empty conversation rejects model changes with `model_locked`.
-- A removed model rejects generation with `model_unavailable`.
+- A conversation with an active generation rejects another generation and current-model updates.
+- Existing conversations change their current model only through the explicit authenticated model mutation; message creation does not implicitly switch it.
+- A removed current model rejects generation with `model_unavailable`.
 - Cancel and delete operations are idempotent where documented.
 
 ## Cache and Proxy Headers
@@ -109,6 +109,7 @@ HTTP request context and public error serialization are implemented in
 GET    /api/v1/conversations?cursor=<opaque>&limit=<1..100>
 GET    /api/v1/conversations/{ulid}
 PATCH  /api/v1/conversations/{ulid}
+PUT    /api/v1/conversations/{ulid}/model
 DELETE /api/v1/conversations/{ulid}
 ```
 
@@ -138,6 +139,8 @@ model-provider code/message. Provider keys, raw response bodies, full provider
 URLs, and transport details never enter the public DTO. A configured default
 missing from the fetched catalog returns authenticated blocking
 `model_default_missing` and is never replaced.
+
+Existing-conversation model updates use the dedicated `PUT .../{id}/model` mutation, require exact catalog membership, persist immediately, and reject active generations. `ConversationResponse.model` is the server-authoritative current model for the next generation; assistant message and generation model fields remain immutable historical snapshots.
 
 Phase E adds authenticated mutation-protected POST routes for new/existing
 messages, generation cancellation, and assistant retry in
@@ -247,7 +250,7 @@ AI_REQUEST_TIMEOUT_SECS
 | Empty/oversized content | `400` or `413` before transaction |
 | Duplicate `client_message_id` | return/reconcile existing logical result; no duplicate rows |
 | New conversation model absent from catalog | `409 model_unavailable` |
-| Existing conversation supplied a different model | `409 model_locked` |
+| Existing conversation supplied a different model | `409 model_mismatch`; use the model mutation first |
 | Active generation already exists | `409 generation_in_progress` |
 | Provider fails before `meta` | normal mapped HTTP error |
 | Provider fails after `meta` | one terminal `error`, partial content persisted |
@@ -259,9 +262,9 @@ AI_REQUEST_TIMEOUT_SECS
 - Good: a valid new conversation selects an available model, commits its four
   related rows, streams ordered deltas, and persists a completed assistant
   message.
-- Base: an existing conversation omits `model`; the server uses its locked
-  model and streams normally.
-- Bad: the browser sends a different model for an existing conversation; the
+- Base: an existing conversation omits `model`; the server uses its current
+  server-persisted model and streams normally.
+- Bad: the browser sends a different model without first persisting it; the
   server rejects it before provider I/O and does not change stored state.
 - Bad: a retry repeats after transport uncertainty; idempotency and active
   generation constraints prevent duplicate work.

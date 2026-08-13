@@ -81,7 +81,7 @@ Use consistent categories:
 401 missing/invalid session
 403 Origin or CSRF rejection
 404 absent resource
-409 state conflict, model_locked, or model_unavailable
+409 state conflict, model_mismatch, generation_in_progress, or model_unavailable
 413 bounded input exceeded
 429 application or provider rate limit
 502 malformed/invalid provider response

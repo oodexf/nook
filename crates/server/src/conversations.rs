@@ -40,6 +40,12 @@ pub struct RenameConversationRequest {
     title: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateConversationModelRequest {
+    model: String,
+}
+
 #[derive(Serialize)]
 pub struct ConversationPageResponse {
     conversations: Vec<ConversationResponse>,
@@ -141,6 +147,39 @@ pub async fn rename(
         Err(error) => return error.into_response(&request_id),
     };
     match state.storage.rename(id, title.to_owned(), updated_at).await {
+        Ok(conversation) => Json(ConversationResponse::from(conversation)).into_response(),
+        Err(error) => ApiError::from(error).into_response(&request_id),
+    }
+}
+
+pub async fn update_model(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    Path(id): Path<String>,
+    request: Result<Json<UpdateConversationModelRequest>, JsonRejection>,
+) -> Response {
+    let request = match request {
+        Ok(Json(request)) => request,
+        Err(error) if error.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return ApiError::PayloadTooLarge.into_response(&request_id);
+        }
+        Err(_) => return ApiError::InvalidInput.into_response(&request_id),
+    };
+    if !valid_id(&id) || !chat_core::model::valid_exact_model_id(&request.model) {
+        return ApiError::InvalidInput.into_response(&request_id);
+    }
+    if let Err(error) = state.models.validate_available(&request.model).await {
+        return crate::models::error_response(error, &request_id);
+    }
+    let updated_at = match unix_milliseconds() {
+        Ok(value) => value,
+        Err(error) => return error.into_response(&request_id),
+    };
+    match state
+        .storage
+        .update_model(id, request.model, updated_at)
+        .await
+    {
         Ok(conversation) => Json(ConversationResponse::from(conversation)).into_response(),
         Err(error) => ApiError::from(error).into_response(&request_id),
     }
@@ -256,6 +295,7 @@ enum ApiError {
     InvalidCursor,
     PayloadTooLarge,
     NotFound,
+    GenerationInProgress,
     Conflict,
     StorageUnavailable,
     Internal,
@@ -266,6 +306,7 @@ impl From<RepositoryError> for ApiError {
         match error.kind() {
             RepositoryErrorKind::NotFound => Self::NotFound,
             RepositoryErrorKind::Conflict => Self::Conflict,
+            RepositoryErrorKind::GenerationInProgress => Self::GenerationInProgress,
             RepositoryErrorKind::Unavailable => Self::StorageUnavailable,
             RepositoryErrorKind::CorruptData => Self::Internal,
         }
@@ -295,6 +336,11 @@ impl ApiError {
                 "conversation_not_found",
                 "The conversation was not found.",
             ),
+            Self::GenerationInProgress => (
+                StatusCode::CONFLICT,
+                "generation_in_progress",
+                "This conversation already has an active response.",
+            ),
             Self::Conflict => (
                 StatusCode::CONFLICT,
                 "conflict",
@@ -317,17 +363,67 @@ impl ApiError {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::Arc, time::Duration};
+
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode, header},
+        response::Response,
     };
-    use chat_core::repository::{ConversationCursor, ConversationRepository, NewConversation};
+    use chat_core::{
+        conversation::{Message, MessageRole, MessageStatus},
+        generation::{Generation, GenerationStatus},
+        repository::{
+            ConversationCursor, ConversationRepository, GenerationFinalization, NewConversation,
+            NewMessageGeneration,
+        },
+    };
     use serde_json::Value;
     use tower::ServiceExt;
     use ulid::Ulid;
 
     use super::{decode_cursor, encode_cursor};
-    use crate::{AppState, build_router};
+    use crate::{
+        AppState, build_router,
+        model_catalog::ModelCatalogService,
+        provider::{OpenAiProvider, ProviderBaseUrl},
+        test_provider::{FakeProviderServer, FakeResponse},
+    };
+
+    fn configure_models(
+        mut state: AppState,
+        fake: &FakeProviderServer,
+        default_model: &str,
+    ) -> AppState {
+        let base = ProviderBaseUrl::parse(fake.base_url()).expect("local base should normalize");
+        let provider = OpenAiProvider::new(
+            &base,
+            "provider-key-sentinel".to_owned(),
+            Duration::from_millis(50),
+        )
+        .expect("provider should build");
+        state.models = ModelCatalogService::new(
+            Arc::new(provider),
+            default_model.to_owned(),
+            Duration::from_mins(1),
+        );
+        state
+    }
+
+    async fn response_error_code(response: Response) -> (StatusCode, String) {
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 4096)
+            .await
+            .expect("error body should read");
+        let value: Value = serde_json::from_slice(&body).expect("error should be JSON");
+        (
+            status,
+            value["error"]["code"]
+                .as_str()
+                .expect("error code should be text")
+                .to_owned(),
+        )
+    }
 
     async fn authenticated_context(state: &AppState) -> (String, String) {
         let router = build_router(state.clone());
@@ -379,6 +475,308 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn conversation_model_update_preserves_provider_error_taxonomy() {
+        let state = crate::tests::test_state().await;
+        let id = Ulid::new().to_string();
+        state
+            .storage
+            .create(NewConversation {
+                id: id.clone(),
+                title: "Original".to_owned(),
+                model: "gpt-5.6-luna".to_owned(),
+                created_at: 100,
+            })
+            .await
+            .expect("fixture should create");
+        let router = build_router(state.clone());
+        let (cookie, csrf) = authenticated_context(&state).await;
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/v1/conversations/{id}/model"))
+                    .header(header::COOKIE, cookie)
+                    .header(header::ORIGIN, &state.config.app_origin)
+                    .header("X-CSRF-Token", csrf)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"model":"gpt-5.6-luna"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should respond");
+        let (status, code) = response_error_code(response).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(code, "model_provider_unavailable");
+        assert_eq!(
+            state
+                .storage
+                .get(id)
+                .await
+                .expect("conversation should remain")
+                .conversation
+                .model,
+            "gpt-5.6-luna"
+        );
+    }
+
+    #[tokio::test]
+    async fn conversation_model_update_rejects_malformed_and_removed_models() {
+        let fake = FakeProviderServer::start(vec![FakeResponse::json(
+            200,
+            r#"{"data":[{"id":"model-a"}]}"#,
+        )])
+        .await;
+        let state = configure_models(crate::tests::test_state().await, &fake, "model-a");
+        let id = Ulid::new().to_string();
+        state
+            .storage
+            .create(NewConversation {
+                id: id.clone(),
+                title: "Original".to_owned(),
+                model: "model-a".to_owned(),
+                created_at: 100,
+            })
+            .await
+            .expect("fixture should create");
+        let (cookie, csrf) = authenticated_context(&state).await;
+        let router = build_router(state.clone());
+
+        let malformed = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/v1/conversations/{id}/model"))
+                    .header(header::COOKIE, &cookie)
+                    .header(header::ORIGIN, &state.config.app_origin)
+                    .header("X-CSRF-Token", &csrf)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"model":" model-a "}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should respond");
+        assert_eq!(
+            response_error_code(malformed).await,
+            (StatusCode::BAD_REQUEST, "invalid_request".to_owned())
+        );
+        assert!(
+            fake.requests().is_empty(),
+            "malformed input must not call provider"
+        );
+
+        let removed = router
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/v1/conversations/{id}/model"))
+                    .header(header::COOKIE, cookie)
+                    .header(header::ORIGIN, &state.config.app_origin)
+                    .header("X-CSRF-Token", csrf)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"model":"removed-model"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should respond");
+        assert_eq!(
+            response_error_code(removed).await,
+            (StatusCode::CONFLICT, "model_unavailable".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn conversation_model_update_reports_generation_in_progress() {
+        let fake = FakeProviderServer::start(vec![FakeResponse::json(
+            200,
+            r#"{"data":[{"id":"model-a"},{"id":"model-b"}]}"#,
+        )])
+        .await;
+        let state = configure_models(crate::tests::test_state().await, &fake, "model-a");
+        let id = Ulid::new().to_string();
+        state
+            .storage
+            .create(NewConversation {
+                id: id.clone(),
+                title: "Original".to_owned(),
+                model: "model-a".to_owned(),
+                created_at: 100,
+            })
+            .await
+            .expect("fixture should create");
+        let assistant_id = Ulid::new().to_string();
+        state
+            .storage
+            .create_generation(
+                Message {
+                    id: assistant_id.clone(),
+                    conversation_id: id.clone(),
+                    client_message_id: None,
+                    role: MessageRole::Assistant,
+                    content: String::new(),
+                    reasoning: None,
+                    status: MessageStatus::Streaming,
+                    model: Some("model-a".to_owned()),
+                    error_code: None,
+                    created_at: 101,
+                    finished_at: None,
+                },
+                Generation {
+                    id: Ulid::new().to_string(),
+                    conversation_id: id.clone(),
+                    assistant_message_id: assistant_id,
+                    provider: "provider".to_owned(),
+                    model: "model-a".to_owned(),
+                    status: GenerationStatus::Streaming,
+                    input_tokens: None,
+                    output_tokens: None,
+                    started_at: 101,
+                    finished_at: None,
+                },
+            )
+            .await
+            .expect("active generation fixture should create");
+        let (cookie, csrf) = authenticated_context(&state).await;
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/v1/conversations/{id}/model"))
+                    .header(header::COOKIE, cookie)
+                    .header(header::ORIGIN, &state.config.app_origin)
+                    .header("X-CSRF-Token", csrf)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"model":"model-b"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should respond");
+        assert_eq!(
+            response_error_code(response).await,
+            (StatusCode::CONFLICT, "generation_in_progress".to_owned())
+        );
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the idempotency regression fixture spans the complete persisted turn"
+    )]
+    #[tokio::test]
+    async fn idempotent_replay_wins_after_current_model_changes() {
+        let state = crate::tests::test_state().await;
+        let conversation_id = Ulid::new().to_string();
+        let user_id = Ulid::new().to_string();
+        let assistant_id = Ulid::new().to_string();
+        let generation_id = Ulid::new().to_string();
+        let client_message_id = "client-idempotent-replay".to_owned();
+        state
+            .storage
+            .create_message_generation(NewMessageGeneration {
+                conversation: Some(NewConversation {
+                    id: conversation_id.clone(),
+                    title: "Original".to_owned(),
+                    model: "model-a".to_owned(),
+                    created_at: 100,
+                }),
+                conversation_id: conversation_id.clone(),
+                user_message: Message {
+                    id: user_id,
+                    conversation_id: conversation_id.clone(),
+                    client_message_id: Some(client_message_id.clone()),
+                    role: MessageRole::User,
+                    content: "same prompt".to_owned(),
+                    reasoning: None,
+                    status: MessageStatus::Completed,
+                    model: None,
+                    error_code: None,
+                    created_at: 100,
+                    finished_at: Some(100),
+                },
+                assistant_message: Message {
+                    id: assistant_id.clone(),
+                    conversation_id: conversation_id.clone(),
+                    client_message_id: None,
+                    role: MessageRole::Assistant,
+                    content: String::new(),
+                    reasoning: None,
+                    status: MessageStatus::Streaming,
+                    model: Some("model-a".to_owned()),
+                    error_code: None,
+                    created_at: 101,
+                    finished_at: None,
+                },
+                generation: Generation {
+                    id: generation_id.clone(),
+                    conversation_id: conversation_id.clone(),
+                    assistant_message_id: assistant_id.clone(),
+                    provider: "provider".to_owned(),
+                    model: "model-a".to_owned(),
+                    status: GenerationStatus::Streaming,
+                    input_tokens: None,
+                    output_tokens: None,
+                    started_at: 101,
+                    finished_at: None,
+                },
+            })
+            .await
+            .expect("original generation should create");
+        state
+            .storage
+            .finalize_generation(GenerationFinalization {
+                generation_id,
+                assistant_message_id: assistant_id,
+                generation_status: GenerationStatus::Completed,
+                message_status: MessageStatus::Completed,
+                content: "original answer".to_owned(),
+                reasoning: None,
+                error_code: None,
+                input_tokens: None,
+                output_tokens: None,
+                finished_at: 102,
+            })
+            .await
+            .expect("original generation should finalize");
+        state
+            .storage
+            .update_model(conversation_id.clone(), "model-b".to_owned(), 103)
+            .await
+            .expect("current model should change after completion");
+
+        let (cookie, csrf) = authenticated_context(&state).await;
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/conversations/{conversation_id}/messages"
+                    ))
+                    .header(header::COOKIE, cookie)
+                    .header(header::ORIGIN, &state.config.app_origin)
+                    .header("X-CSRF-Token", csrf)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"client_message_id":"{client_message_id}","content":"same prompt","model":"model-a"}}"#
+                    )))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("replay should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let detail = state
+            .storage
+            .get(conversation_id)
+            .await
+            .expect("conversation should remain readable");
+        assert_eq!(detail.conversation.model, "model-b");
+        assert_eq!(
+            detail.messages.len(),
+            2,
+            "replay must not duplicate messages"
+        );
+    }
+
+    #[tokio::test]
     async fn crud_routes_require_authentication_and_mutation_protection() {
         let state = crate::tests::test_state().await;
         let id = Ulid::new().to_string();
@@ -387,7 +785,7 @@ mod tests {
             .create(NewConversation {
                 id: id.clone(),
                 title: "Original".to_owned(),
-                model: "test-model".to_owned(),
+                model: "gpt-5.6-luna".to_owned(),
                 created_at: 100,
             })
             .await
@@ -478,7 +876,7 @@ mod tests {
             .create(NewConversation {
                 id: id.clone(),
                 title: "Original".to_owned(),
-                model: "test-model".to_owned(),
+                model: "gpt-5.6-luna".to_owned(),
                 created_at: 100,
             })
             .await

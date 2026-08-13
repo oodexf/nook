@@ -181,6 +181,36 @@ pub(crate) fn rename(
     get(connection, id).map(|detail| detail.conversation)
 }
 
+pub(crate) fn update_model(
+    connection: &mut Connection,
+    id: &str,
+    model: &str,
+    updated_at: i64,
+) -> Result<Conversation, StorageError> {
+    let transaction = connection.transaction()?;
+    let active: bool = transaction.query_row(
+        "SELECT EXISTS(
+                 SELECT 1 FROM generations
+                 WHERE conversation_id = ?1
+                   AND status IN ('pending', 'streaming', 'cancelling')
+             )",
+        [id],
+        |row| row.get(0),
+    )?;
+    if active {
+        return Err(StorageError::GenerationInProgress);
+    }
+    let changed = transaction.execute(
+        "UPDATE conversations SET model = ?1, updated_at = ?2 WHERE id = ?3",
+        params![model, updated_at, id],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::NotFound);
+    }
+    transaction.commit()?;
+    get(connection, id).map(|detail| detail.conversation)
+}
+
 pub(crate) fn delete(connection: &Connection, id: &str) -> Result<(), StorageError> {
     let changed = connection.execute("DELETE FROM conversations WHERE id = ?1", [id])?;
     if changed == 0 {

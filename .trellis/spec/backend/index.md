@@ -31,7 +31,8 @@ real source and test examples during the required Trellis spec-update phase.
 - Provider payloads, database rows, and public API DTOs are separate types.
 - Every state-changing authenticated request passes session, Origin, CSRF, and
   input validation before business logic.
-- One conversation has one immutable model and at most one active generation.
+- One conversation has one server-authoritative current model for its next generation and at most one active generation.
+- Every assistant message and generation retains its immutable actual-model snapshot.
 - Provider credentials and conversation bodies never enter normal logs.
 - SQLite is used on a local persistent volume only.
 

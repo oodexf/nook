@@ -49,14 +49,18 @@ Implemented Phase D contract:
 - Never invent or silently substitute a model.
 
 Historical conversations remain readable when a model disappears. New
-generation and retry requests fail safely.
+generation and retry requests fail safely until the current model is changed.
+The explicit conversation model mutation validates exact catalog membership;
+if the current model disappears, the frontend may persist the newest still-
+available historical assistant model, never an invented/default substitute.
 
 Phase D does not invent an empty-conversation database row. Existing
 conversation detail reads return their stored model without consulting the
-current catalog. The schema trigger already rejects model updates after the
-first message. Phase E must call the reusable catalog availability validator
-and persist conversation/model + user message + assistant placeholder +
-generation atomically in the documented first-message transaction.
+current catalog. The schema no longer locks model updates after the first message. Phase E calls
+the reusable catalog availability validator and persists conversation/model +
+user message + assistant placeholder + generation atomically in the documented
+first-message transaction; later model changes use the dedicated authenticated
+conversation mutation and are rejected during active generations.
 
 `crates/core/src/model.rs` owns `ModelCatalog`, normalized entries, exact model
 availability validation, provider-facing `ModelCatalogProvider`, and stable safe

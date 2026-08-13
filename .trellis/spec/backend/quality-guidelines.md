@@ -58,7 +58,7 @@ deterministic fake provider described in the approved implementation plan.
 
 ## Review Checklist
 
-- Does the change preserve one model per conversation?
+- Does the change preserve one current model per conversation and immutable model snapshots per assistant/generation?
 - Can duplicate or concurrent requests violate state constraints?
 - Does cancellation reach all owned tasks and connections?
 - Is the transaction boundary short and explicit?

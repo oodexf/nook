@@ -48,7 +48,7 @@ Forbidden:
 
 The first-message flow uses one transaction for:
 
-1. conversation creation and immutable model assignment;
+1. conversation creation and initial current-model assignment;
 2. user message insertion;
 3. assistant placeholder insertion;
 4. generation insertion.
@@ -70,8 +70,7 @@ Never hold a SQLite transaction while:
   representation.
 - Public timestamps are stored as UTC Unix milliseconds in INTEGER columns.
 - Foreign keys declare their delete behavior.
-- Assistant messages store the historical model ID even though conversations
-  also store their locked model.
+- Assistant messages store the historical model ID while conversations store the mutable current model for the next generation.
 - Status columns use core-defined values; SQL and HTTP layers do not invent
   additional spellings.
 
@@ -121,8 +120,9 @@ the HTTP listener starts.
 The schema uses deterministic `(updated_at DESC, id DESC)` conversation ordering,
 a global partial unique `client_message_id` index, a partial active-generation
 index, composite foreign keys to keep generations in the assistant message's
-conversation, and triggers to enforce assistant-only generation links and lock
-a conversation model after its first message. The generation-link trigger uses
+conversation, and triggers to enforce assistant-only generation links. Migration 0003 removes
+the former conversation-model lock trigger; current-model updates are now an
+explicit repository transaction that rejects active generations. The generation-link trigger uses
 `NOT EXISTS` over message ID, conversation ID, and assistant role so a missing
 row cannot bypass enforcement through SQL NULL comparison semantics.
 
@@ -132,7 +132,7 @@ unavailability.
 
 Phase E generation persistence is implemented in
 `crates/storage/src/generation_repository.rs`. First-message creation inserts the
-conversation with its immutable model, globally keyed user message, assistant
+conversation with its initial current model, globally keyed user message, assistant
 placeholder, and generation in one blocking-pool transaction, then commits
 before provider I/O. Retry setup validates the latest assistant and appends new
 rows. Terminal finalization conditionally transitions only active rows and

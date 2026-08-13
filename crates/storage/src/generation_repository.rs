@@ -59,7 +59,7 @@ pub(crate) fn create_message_generation(
             .optional()?
             .ok_or(StorageError::NotFound)?;
         if stored_model != setup.generation.model {
-            return Err(StorageError::ModelLocked);
+            return Err(StorageError::ModelMismatch);
         }
     }
 
@@ -110,7 +110,7 @@ pub(crate) fn create_retry_generation(
         |row| row.get(0),
     )?;
     if stored_model != setup.generation.model {
-        return Err(StorageError::ModelLocked);
+        return Err(StorageError::ModelMismatch);
     }
     insert_message(&transaction, &setup.assistant_message)?;
     insert_generation(&transaction, &setup.generation)?;
