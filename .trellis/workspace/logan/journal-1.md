@@ -113,3 +113,46 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 鉴权页面重构为简洁卡片 + 错误态落到输入框
+
+**Date**: 2026-08-15
+**Task**: 鉴权页面重构为简洁卡片 + 错误态落到输入框
+**Branch**: `uifix`
+
+### Summary
+
+把鉴权页从 08-14 的沉浸式画布方向完全掉头，重构为与 App 同一设计语言的简洁登录卡片；登录失败改由令牌输入框的颜色与摇动表达。事后补录 08-15 任务并归档被取代的 08-14。
+
+### Main Changes
+
+- 删除 AuthCanvas.svelte（265 行 rAF 粒子场）与 AuthPage 的跑马灯/巨型视差标题；重写 AuthPage.svelte 为单张卡片
+- global.css 中 --auth-* token 从 10 个减到 2 个（--auth-glow-1/2），其余改用通用 surface/text/border/accent token，浅色主题下鉴权页首次成为真正的浅色
+- AuthScene 接管背景氛围与居中；checking / form / unavailable 三态共用同一卡片形状，checking 收成横向小胶囊
+- ThemeSwitch 从弹出菜单（294 行，含焦点陷阱与外点关闭）改为三段式原生 radio 胶囊，焦点环用 :has(input:focus-visible) 避免鼠标点击残留
+- 登录失败改由输入框表达：危险色边框/底色/图标 + 400ms 收敛摇动 + role=alert 文案下移为字段说明，并接上 aria-invalid / aria-describedby；编辑令牌即全部清除
+- 动画重启改用 tick() + 强制 offsetWidth 重算，替代 requestAnimationFrame（浏览器实测 document.hidden 时 rAF 不执行，shaking 类始终落不到 DOM）
+- 更新 spec/frontend/component-guidelines.md：删除过时的 Canvas/rAF 一节，新增 Auth Page 一节（含错误表达与动画重启规则）
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] npm run check：0 errors 0 warnings
+- [OK] npm run lint：通过
+- [OK] npm test：386 tests / 28 files 全绿，AuthPage.test.ts DOM 契约未破坏
+- [OK] npm run build：通过（CSS 70.6 kB / gzip 15.1 kB）
+- [OK] 浏览器实测：明暗两套主题 × 桌面/移动视口的表单态、填写态、提交中、错误态、验证中；类名时序 field → field invalid → field invalid shaking；输入后 invalid / alert / aria-* 同步清除
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 提交本次改动（工作树中还有 08-08 遗留的测试文件改动与 trellis 脚手架，需分开处理）
+- 提交后归档 08-15-auth-page-simplify
+- 决定是否把 Trellis 接到 Claude Code（.claude/ 目前无 hooks，本次会话无 SessionStart 注入与 workflow-state 面包屑）
