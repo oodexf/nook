@@ -9,3 +9,6 @@ frontend/dist/*
 !frontend/dist/.gitkeep
 coverage/
 
+# Runtime pid file written by the local mock provider
+mock-provider.pid
+
