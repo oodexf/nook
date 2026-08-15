@@ -40,6 +40,13 @@
      focus ring is visible; coarse pointers receive a larger invisible hit
      target below without making the icon itself visually bulky. */
   --compact-action-size: 28px;
+
+  /* Auth scene. The page reuses the ordinary surface/text/border tokens so it
+     is the same design language as the app; only the two ambient glows behind
+     the card are auth-specific, and they exist in both palettes. */
+  --auth-glow-1: rgb(90 146 146 / 0.20);
+  --auth-glow-2: rgb(214 199 168 / 0.34);
+
   /* Layering */
   --z-drawer: 20;
   --z-dialog: 30;
@@ -74,6 +81,10 @@
   --warning-text: #fbbf24;
 
   --shadow: 0 18px 50px rgb(0 0 0 / 0.5);
+
+  /* Auth scene: the same two glows, retuned for a dark ground. */
+  --auth-glow-1: rgb(90 146 146 / 0.24);
+  --auth-glow-2: rgb(96 165 250 / 0.12);
 
   color-scheme: dark;
 }
@@ -212,18 +223,14 @@ button,
   outline-offset: 3px;
 }
 
+/* The auth page is a plain full-viewport ground; AuthScene owns the ambient
+   backdrop and the centering, so this stays a single flat surface. */
 .auth-main {
-  display: grid;
+  position: relative;
   min-height: 100vh;
-  place-items: center;
-  padding: var(--space-5);
-}
-
-@media (max-width: 480px) {
-  .auth-main {
-    align-items: stretch;
-    padding: var(--space-3);
-  }
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
 }
 
 @media (prefers-reduced-motion: reduce) {

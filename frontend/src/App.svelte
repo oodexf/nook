@@ -3,8 +3,11 @@
 
   import { onSessionExpired } from "./lib/api/client";
   import AuthPage from "./lib/auth/AuthPage.svelte";
+  import AuthScene from "./lib/auth/AuthScene.svelte";
   import { createSessionStore } from "./lib/auth/session-store.svelte";
+  import CircleAlertIcon from "./lib/components/CircleAlertIcon.svelte";
   import PrimaryButton from "./lib/components/PrimaryButton.svelte";
+  import RefreshCwIcon from "./lib/components/RefreshCwIcon.svelte";
   import AppShell from "./lib/conversations/AppShell.svelte";
   import { createThemeStore } from "./lib/theme/theme-store.svelte";
 
@@ -40,88 +43,112 @@
   />
 {:else}
 <main class="auth-main">
-  {#if session.status.kind === "checking"}
-    <section class="panel panel-narrow" aria-label="会话检查">
+  <AuthScene {theme}>
+    {#if session.status.kind === "checking"}
       <AuthPage variant="checking" />
-    </section>
-  {:else if session.status.kind === "unauthenticated"}
-    <section class="panel panel-narrow" aria-label="登录">
+    {:else if session.status.kind === "unauthenticated"}
       <AuthPage
         variant="form"
         isSubmitting={session.isBusy}
         errorMessage={session.errorMessage}
         onLogin={(token, rememberMe) => session.login(token, rememberMe)}
       />
-    </section>
-  {:else if session.status.kind === "unavailable"}
-    <section class="panel panel-narrow centered" aria-labelledby="unavailable-title">
-      <p class="eyebrow">连接失败</p>
-      <h1 id="unavailable-title">暂时无法连接服务</h1>
-      <p class="summary">{session.status.message}</p>
-      <PrimaryButton
-        disabled={session.isBusy}
-        onclick={() => void session.retryBootstrap()}
-      >
-        重试
-      </PrimaryButton>
-    </section>
-  {/if}
+    {:else if session.status.kind === "unavailable"}
+      <section class="card" aria-labelledby="unavailable-title">
+        <span class="unavailable-icon" aria-hidden="true">
+          <CircleAlertIcon size={22} />
+        </span>
+        <h1 id="unavailable-title">暂时无法连接服务</h1>
+        <p class="summary">{session.status.message}</p>
+        <PrimaryButton
+          disabled={session.isBusy}
+          onclick={() => void session.retryBootstrap()}
+        >
+          <span class="retry-content">
+            <span class="retry-loader" class:spinning={session.isBusy} aria-hidden="true">
+              <RefreshCwIcon size={18} />
+            </span>
+            <span>重试</span>
+          </span>
+        </PrimaryButton>
+      </section>
+    {/if}
+  </AuthScene>
 </main>
 {/if}
 
 <style>
-  .panel {
-    padding: clamp(28px, 6vw, 56px);
+  /* Mirrors the AuthPage card so every auth-stage state shares one shape. */
+  .card {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 400px);
+    padding: clamp(26px, 4vw, 36px);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface);
     box-shadow: var(--shadow);
+    color: var(--text);
   }
 
-  .panel-narrow {
-    width: min(100%, 480px);
-  }
-
-  .centered {
+  .unavailable-icon {
     display: grid;
-    justify-items: center;
-    text-align: center;
-  }
-
-  .centered .summary {
-    margin: var(--space-4) 0 var(--space-6);
-  }
-
-  .eyebrow {
-    margin: 0 0 var(--space-3);
-    color: var(--muted);
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    width: 48px;
+    height: 48px;
+    margin-bottom: var(--space-5);
+    place-items: center;
+    border-radius: 14px;
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
   }
 
   h1 {
     margin: 0;
-    font-size: clamp(1.9rem, 6vw, 2.6rem);
-    letter-spacing: -0.03em;
-    line-height: 1.1;
+    color: var(--text-strong);
+    font-size: 1.6rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
   }
 
   .summary {
-    max-width: 30rem;
-    margin: var(--space-5) 0 0;
+    margin: var(--space-2) 0 var(--space-6);
     color: var(--muted);
-    font-size: 1rem;
-    line-height: 1.7;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  /* Shared `PrimaryButton` owns the button chrome; only the glyph + label row
+     is styled here (matching the AuthPage submit action). */
+  .retry-content {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .retry-loader {
+    display: grid;
+    place-items: center;
+  }
+
+  .retry-loader.spinning {
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .retry-loader.spinning {
+      animation: none;
+    }
   }
 
   @media (max-width: 480px) {
-    .panel {
-      display: flex;
-      min-height: calc(100vh - 24px);
-      flex-direction: column;
-      justify-content: center;
+    .card {
       border-radius: var(--radius-md);
     }
   }
