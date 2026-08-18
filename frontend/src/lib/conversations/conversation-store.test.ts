@@ -2,9 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { onSessionExpired } from "../api/client";
+import type { ConversationSummary } from "../api/conversations";
 import {
+  buildSidebarSections,
   createConversationStore,
-  groupConversations,
   sortConversations
 } from "./conversation-store.svelte";
 
@@ -395,14 +396,119 @@ describe("sortConversations", () => {
   });
 });
 
-describe("groupConversations", () => {
-  it("splits pinned items first, preserving the incoming order", () => {
-    const groups = groupConversations([
-      { id: ID_A, title: "a", model: "m", createdAt: 0, updatedAt: 30, pinned: false },
-      { id: ID_B, title: "b", model: "m", createdAt: 0, updatedAt: 20, pinned: true },
-      { id: ID_C, title: "c", model: "m", createdAt: 0, updatedAt: 10, pinned: true }
+describe("buildSidebarSections", () => {
+  // A fixed local wall-clock instant, so every boundary below is expressed
+  // against a known local midnight regardless of the runner's timezone.
+  const NOW = new Date(2026, 7, 15, 13, 30, 0).getTime();
+
+  function dayStart(daysAgo: number): number {
+    return new Date(2026, 7, 15 - daysAgo).getTime();
+  }
+
+  function entry(
+    id: string,
+    updatedAt: number,
+    pinned = false
+  ): ConversationSummary {
+    return { id, title: id, model: "m", createdAt: 0, updatedAt, pinned };
+  }
+
+  it("puts pinned items first and keeps them out of the time buckets", () => {
+    const sections = buildSidebarSections(
+      [
+        entry(ID_A, NOW),
+        entry(ID_B, dayStart(40), true),
+        entry(ID_C, NOW, true)
+      ],
+      NOW
+    );
+    expect(sections.map((section) => section.key)).toEqual(["pinned", "today"]);
+    // Pinned keeps the incoming order even though B is far older than C.
+    expect(sections[0].items.map((item) => item.id)).toEqual([ID_B, ID_C]);
+    expect(sections[0].label).toBe("置顶");
+    expect(sections[1].items.map((item) => item.id)).toEqual([ID_A]);
+  });
+
+  it("buckets by local calendar day and labels each section", () => {
+    const sections = buildSidebarSections(
+      [
+        entry("today", dayStart(0)),
+        entry("yesterday", dayStart(1)),
+        entry("week", dayStart(6)),
+        entry("month", dayStart(29)),
+        entry("older", dayStart(30))
+      ],
+      NOW
+    );
+    expect(sections.map((section) => section.key)).toEqual([
+      "today",
+      "yesterday",
+      "week",
+      "month",
+      "older"
     ]);
-    expect(groups.pinned.map((item) => item.id)).toEqual([ID_B, ID_C]);
-    expect(groups.recents.map((item) => item.id)).toEqual([ID_A]);
+    expect(sections.map((section) => section.label)).toEqual([
+      "今天",
+      "昨天",
+      "过去 7 天",
+      "过去 30 天",
+      "更早"
+    ]);
+    expect(
+      sections.map((section) => section.items.map((item) => item.id))
+    ).toEqual([["today"], ["yesterday"], ["week"], ["month"], ["older"]]);
+  });
+
+  it("places a timestamp exactly on a boundary in the newer bucket", () => {
+    // Each boundary is the inclusive lower edge of its own bucket, so one
+    // millisecond earlier belongs to the next-older one.
+    const sections = buildSidebarSections(
+      [
+        entry("edge-today", dayStart(0)),
+        entry("edge-yesterday", dayStart(0) - 1),
+        entry("edge-week", dayStart(1) - 1),
+        entry("edge-month", dayStart(6) - 1),
+        entry("edge-older", dayStart(29) - 1)
+      ],
+      NOW
+    );
+    expect(
+      sections.map((section) => [section.key, section.items[0].id])
+    ).toEqual([
+      ["today", "edge-today"],
+      ["yesterday", "edge-yesterday"],
+      ["week", "edge-week"],
+      ["month", "edge-month"],
+      ["older", "edge-older"]
+    ]);
+  });
+
+  it("omits empty sections", () => {
+    const sections = buildSidebarSections([entry(ID_A, dayStart(3))], NOW);
+    expect(sections.map((section) => section.key)).toEqual(["week"]);
+  });
+
+  it("returns nothing for an empty page", () => {
+    expect(buildSidebarSections([], NOW)).toEqual([]);
+  });
+
+  it("keeps the incoming server order inside a bucket", () => {
+    const sections = buildSidebarSections(
+      [
+        entry(ID_A, dayStart(0) + 1_000),
+        entry(ID_B, dayStart(0) + 3_000),
+        entry(ID_C, dayStart(0) + 2_000)
+      ],
+      NOW
+    );
+    expect(sections[0].items.map((item) => item.id)).toEqual([ID_A, ID_B, ID_C]);
+  });
+
+  it("treats a clock-skewed future timestamp as today", () => {
+    const sections = buildSidebarSections(
+      [entry(ID_A, NOW + 60 * 60 * 1000)],
+      NOW
+    );
+    expect(sections.map((section) => section.key)).toEqual(["today"]);
   });
 });

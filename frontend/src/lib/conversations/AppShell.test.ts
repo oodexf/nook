@@ -13,6 +13,14 @@ type Mounted = Record<string, never>;
 const ID_A = "01J0000000000000000000000A";
 const ID_B = "01J0000000000000000000000B";
 
+/**
+ * Fixture timestamps are derived from the run's own clock (08-15 sidebar UI
+ * refresh): the sidebar buckets rows by local calendar day, so a hard-coded
+ * instant would drift into the "更早" bucket as real time passes and rot the
+ * section assertions below.
+ */
+const FIXTURE_NOW = Date.now();
+
 function summary(
   id: string,
   overrides: Record<string, unknown> = {}
@@ -21,8 +29,8 @@ function summary(
     id,
     title: `对话 ${id}`,
     model: "test-model",
-    created_at: 1786000000000,
-    updated_at: 1786000001000,
+    created_at: FIXTURE_NOW - 1000,
+    updated_at: FIXTURE_NOW,
     ...overrides
   };
 }
@@ -111,6 +119,21 @@ function byText(
   return Array.from(root.querySelectorAll<HTMLElement>(selector)).find(
     (element) => element.textContent?.includes(text)
   );
+}
+
+/**
+ * The header shows the model's derived display name (08-15 header refresh)
+ * and keeps the exact locked ID in the tooltip; both halves are the
+ * contract, so both are asserted together.
+ */
+function expectHeaderModel(
+  root: HTMLElement,
+  id: string,
+  displayName: string
+): void {
+  const label = root.querySelector<HTMLElement>(".locked-model");
+  expect(label?.textContent?.trim()).toBe(displayName);
+  expect(label?.title).toBe(`模型 ${id}`);
 }
 
 // The empty-draft hero is a random time-of-day greeting (08-10), so tests
@@ -324,7 +347,7 @@ describe("AppShell", () => {
     expect(byText(container, ".status", "已停止")).toBeDefined();
     expect(byText(container, "code.model", "test-model")).toBeDefined();
     // Locked model label in the header.
-    expect(byText(container, ".locked-model", "test-model")).toBeDefined();
+    expectHeaderModel(container, "test-model", "Test Model");
   });
 
   it("loads the next page through the load-more button", async () => {
@@ -358,7 +381,7 @@ describe("AppShell", () => {
       patch: (id) =>
         jsonResponse(
           200,
-          summary(id, { title: "改名后的标题", updated_at: 1786000002000 })
+          summary(id, { title: "改名后的标题", updated_at: FIXTURE_NOW + 1000 })
         )
     });
     mountShell();
@@ -789,9 +812,11 @@ describe("AppShell", () => {
       expect(container.querySelector(".messages")).not.toBeNull();
     });
 
-    // The active card chrome lives on the row container; the title
-    // button and the row actions are transparent siblings inside it,
-    // never nested interactive elements.
+    // The active card chrome lives on the row container; the title button
+    // and the row actions are transparent siblings inside it, never nested
+    // interactive elements. Since 08-15 the two actions share a
+    // `.row-actions` positioning wrapper — still a sibling of the title
+    // button, so no control contains another.
     const row = container.querySelector<HTMLElement>(
       ".sidebar-static .item-row.item-row-active"
     );
@@ -799,15 +824,16 @@ describe("AppShell", () => {
     const item = row?.querySelector<HTMLButtonElement>(":scope > button.item");
     expect(item?.getAttribute("aria-current")).toBe("true");
     expect(item?.classList.contains("item-active")).toBe(false);
+    expect(item?.querySelector("button")).toBeNull();
     // Pin placeholder toggle and the menu trigger (which owns rename via
     // its menu) are the row's independent action controls.
     const pinTrigger = row?.querySelector<HTMLButtonElement>(
-      `:scope > button[aria-label='置顶 对话 ${ID_A}']`
+      `:scope > .row-actions > button[aria-label='置顶 对话 ${ID_A}']`
     );
     expect(pinTrigger?.getAttribute("aria-pressed")).toBe("false");
     expect(pinTrigger?.querySelector("svg")).not.toBeNull();
     const menuTrigger = row?.querySelector<HTMLButtonElement>(
-      `:scope > button[data-row-menu-trigger='${ID_A}']`
+      `:scope > .row-actions > button[data-row-menu-trigger='${ID_A}']`
     );
     expect(menuTrigger?.getAttribute("aria-haspopup")).toBe("menu");
     expect(menuTrigger?.getAttribute("aria-expanded")).toBe("false");
@@ -820,7 +846,7 @@ describe("AppShell", () => {
       patch: (id) =>
         jsonResponse(
           200,
-          summary(id, { title: "侧栏新标题", updated_at: 1786000002000 })
+          summary(id, { title: "侧栏新标题", updated_at: FIXTURE_NOW + 1000 })
         )
     });
     mountShell();
@@ -991,7 +1017,7 @@ describe("AppShell", () => {
       patch: (id) =>
         jsonResponse(
           200,
-          summary(id, { title: "模糊提交", updated_at: 1786000002000 })
+          summary(id, { title: "模糊提交", updated_at: FIXTURE_NOW + 1000 })
         )
     });
     mountShell();
@@ -1176,7 +1202,7 @@ describe("AppShell", () => {
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it("opens settings left of the collapse control and applies the theme", async () => {
+  it("opens settings from the sidebar footer and applies the theme", async () => {
     installRouter({ list: () => page([], null) });
     mountShell();
 
@@ -1192,10 +1218,11 @@ describe("AppShell", () => {
       "button[aria-label='收起侧边栏']"
     );
     expect(settings).not.toBeNull();
-    // Settings sits to the left of the collapse control.
+    // Settings moved out of the header into the footer action row (08-15),
+    // so it now follows the collapse control in document order.
     expect(
       settings!.compareDocumentPosition(collapse!) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+        Node.DOCUMENT_POSITION_PRECEDING
     ).not.toBe(0);
 
     settings!.click();
@@ -1322,8 +1349,9 @@ describe("AppShell", () => {
     await vi.waitFor(() => {
       expect(byText(container, ".item-title", `对话 ${ID_A}`)).toBeDefined();
     });
-    // Everything starts under Recents; the pinned section stays hidden.
-    expect(byText(container, ".section-label", "最近")).toBeDefined();
+    // Everything starts under the newest time bucket (the fixtures are
+    // stamped with the run's own clock); the pinned section stays hidden.
+    expect(byText(container, ".section-label", "今天")).toBeDefined();
     expect(byText(container, ".section-label", "置顶")).toBeUndefined();
 
     container
@@ -1852,7 +1880,7 @@ describe("AppShell model flows", () => {
       expect(container.querySelector(".messages")).not.toBeNull();
     });
     // Locked label only; the composer selector and refresh action are absent.
-    expect(byText(container, ".locked-model", "test-model")).toBeDefined();
+    expectHeaderModel(container, "test-model", "Test Model");
     expect(container.querySelector(".model-trigger")).toBeNull();
     expect(container.querySelector(".refresh-button")).toBeNull();
   });
@@ -1876,7 +1904,7 @@ describe("AppShell model flows", () => {
       ).toBeDefined();
     });
     // The locked label is retained and history stays readable.
-    expect(byText(container, ".locked-model", "removed-model")).toBeDefined();
+    expectHeaderModel(container, "removed-model", "Removed Model");
     expect(container.querySelector(".messages")).not.toBeNull();
     expect(container.querySelector(".model-trigger")).toBeNull();
   });
@@ -1908,6 +1936,6 @@ describe("AppShell model flows", () => {
     await vi.waitFor(() => {
       expect(container.querySelector(".model-unavailable")).toBeNull();
     });
-    expect(byText(container, ".locked-model", "test-model")).toBeDefined();
+    expectHeaderModel(container, "test-model", "Test Model");
   });
 });

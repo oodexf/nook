@@ -292,7 +292,10 @@
     display: grid;
     height: 100vh;
     height: 100dvh;
-    grid-template-columns: 300px minmax(0, 1fr);
+    /* Narrowed with the sidebar's compact scale (08-15 spacing pass): the
+       column carried a lot of empty space to the right of the titles once
+       the rows and controls stopped being touch-sized. */
+    grid-template-columns: 272px minmax(0, 1fr);
     transition: grid-template-columns var(--motion-fast);
   }
 
@@ -314,6 +317,16 @@
     visibility: hidden;
     border-right: none;
     transition: visibility 0s linear 160ms;
+  }
+
+  /* The delay above only exists to wait for the width transition. The global
+     reduced-motion reset zeroes `transition-duration`, not `transition-delay`,
+     so without this the column would keep lingering in the tab order for
+     160ms after a collapse that no longer animates. */
+  @media (prefers-reduced-motion: reduce) {
+    .shell.sidebar-collapsed .sidebar-static {
+      transition-delay: 0s;
+    }
   }
 
   .content {

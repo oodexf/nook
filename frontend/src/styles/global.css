@@ -12,6 +12,10 @@
   /* Feedback */
   --accent: #1d4ed8;
   --accent-contrast: #ffffff;
+  /* Selected-row wash (08-15 sidebar UI refresh): a tint of the accent laid
+     over the surface, used where a filled state must read as "current"
+     without the hard edge of a border or rule. */
+  --accent-soft: rgb(29 78 216 / 0.08);
   --danger: #b42318;
   --success: #16a34a;
   --warning-text: #92400e;
@@ -40,6 +44,15 @@
      focus ring is visible; coarse pointers receive a larger invisible hit
      target below without making the icon itself visually bulky. */
   --compact-action-size: 28px;
+
+  /* Navigation/header scale (08-15 spacing pass). `--touch-target` is a
+     *touch* minimum: applied to every sidebar row, header control and
+     chrome button it made the app read as a stack of large buttons on a
+     pointer device. These two drive that chrome instead, and are raised
+     back to the touch minimum for coarse pointers at the bottom of this
+     file — density is a pointer affordance, never a smaller tap target. */
+  --nav-row-height: 36px;
+  --nav-icon-button: 32px;
 
   /* Auth scene. The page reuses the ordinary surface/text/border tokens so it
      is the same design language as the app; only the two ambient glows behind
@@ -76,6 +89,9 @@
 
   --accent: #60a5fa;
   --accent-contrast: #0b1220;
+  /* A higher ratio than the light palette: a pale blue on a dark ground
+     reads weaker than a deep blue on a light one at the same alpha. */
+  --accent-soft: rgb(96 165 250 / 0.16);
   --danger: #f87171;
   --success: #4ade80;
   --warning-text: #fbbf24;
@@ -215,6 +231,15 @@ button,
     width: var(--touch-target);
     height: var(--touch-target);
     content: "";
+  }
+}
+
+/* Touch gives the compact navigation scale back: rows and chrome buttons
+   return to the 44px minimum tap target. */
+@media (any-pointer: coarse) {
+  :root {
+    --nav-row-height: var(--touch-target);
+    --nav-icon-button: var(--touch-target);
   }
 }
 

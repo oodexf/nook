@@ -115,24 +115,97 @@ export function sortConversations(
   });
 }
 
-export type ConversationGroups = {
-  pinned: ConversationSummary[];
-  recents: ConversationSummary[];
+export type ConversationSectionKey =
+  | "pinned"
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "older";
+
+export type ConversationSection = {
+  /** Stable keyed-each key, decoupled from the display label. */
+  key: ConversationSectionKey;
+  label: string;
+  items: ConversationSummary[];
+};
+
+const SECTION_LABELS: Record<ConversationSectionKey, string> = {
+  pinned: "置顶",
+  today: "今天",
+  yesterday: "昨天",
+  week: "过去 7 天",
+  month: "过去 30 天",
+  older: "更早"
 };
 
 /**
- * Splits a server-ordered page into the pinned section and the recents
- * section (08-08 sidebar redesign). Order inside each section keeps the
- * incoming server ordering; pinning is a placeholder without persistence,
- * so this never re-sorts.
+ * Local midnight `daysAgo` days before the local day containing `now`.
+ *
+ * Built by calendar arithmetic (`new Date(y, m, d - n)`) rather than by
+ * subtracting `n * 86_400_000` milliseconds: a DST transition makes a local
+ * day 23 or 25 hours long, and millisecond math would slide the boundary
+ * into the neighbouring day.
  */
-export function groupConversations(
-  conversations: ConversationSummary[]
-): ConversationGroups {
-  return {
-    pinned: conversations.filter((item) => item.pinned),
-    recents: conversations.filter((item) => !item.pinned)
+function localDayStart(now: number, daysAgo: number): number {
+  const reference = new Date(now);
+  return new Date(
+    reference.getFullYear(),
+    reference.getMonth(),
+    reference.getDate() - daysAgo
+  ).getTime();
+}
+
+/**
+ * Splits a server-ordered page into the sidebar's sections (08-15 sidebar UI
+ * refresh): pinned first, then the remainder bucketed by `updatedAt` into
+ * local-calendar-day ranges.
+ *
+ * `now` is injected rather than read from the clock inside, so the bucket
+ * boundaries are deterministic under test. Order inside every section keeps
+ * the incoming server ordering (`updated_at DESC`), so this never re-sorts;
+ * pinning is a placeholder without persistence. Empty sections are omitted,
+ * so the rendering layer never has to test for them.
+ */
+export function buildSidebarSections(
+  conversations: ConversationSummary[],
+  now: number
+): ConversationSection[] {
+  const todayStart = localDayStart(now, 0);
+  const yesterdayStart = localDayStart(now, 1);
+  const weekStart = localDayStart(now, 6);
+  const monthStart = localDayStart(now, 29);
+
+  const buckets: Record<ConversationSectionKey, ConversationSummary[]> = {
+    pinned: [],
+    today: [],
+    yesterday: [],
+    week: [],
+    month: [],
+    older: []
   };
+
+  for (const item of conversations) {
+    if (item.pinned) {
+      buckets.pinned.push(item);
+      // A clock skew that puts `updatedAt` ahead of `now` lands in "today":
+      // the newest bucket is open-ended upward, so no "future" section exists.
+    } else if (item.updatedAt >= todayStart) {
+      buckets.today.push(item);
+    } else if (item.updatedAt >= yesterdayStart) {
+      buckets.yesterday.push(item);
+    } else if (item.updatedAt >= weekStart) {
+      buckets.week.push(item);
+    } else if (item.updatedAt >= monthStart) {
+      buckets.month.push(item);
+    } else {
+      buckets.older.push(item);
+    }
+  }
+
+  return (Object.keys(buckets) as ConversationSectionKey[])
+    .filter((key) => buckets[key].length > 0)
+    .map((key) => ({ key, label: SECTION_LABELS[key], items: buckets[key] }));
 }
 
 export function createConversationStore(): ConversationStore {
