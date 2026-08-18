@@ -201,3 +201,47 @@
 - 未提交：测试模型 id 重构（7 个测试文件 + test-provider.ts）、trellis 脚手架（AGENTS.md/.gitattributes/.codex/.pi/.agents/.trellis 运行时）、nook-icon-subject-only.svg
 - 脚手架未提交导致 .trellis/tasks 与 workspace 在版本库中悬空：clone 后无 workflow.md/config.yaml/scripts 可用
 - unavailable 状态的重试按钮未在浏览器中实际渲染验证（需 bootstrap 失败才出现）
+
+
+## Session 8: Markdown 公式与 HTML 渲染保真修复
+
+**Date**: 2026-08-18
+**Task**: Markdown 公式与 HTML 渲染保真修复
+**Branch**: `uifix`
+
+### Summary
+
+在不放宽 XSS/URL 边界的前提下修复渲染管线静默丢内容的问题：KaTeX style 从整条属性连坐丢弃改为逐条声明过滤，补齐 MathML 白名单，任务列表/上下标/图片/脚注/details 不再被剥离。
+
+### Main Changes
+
+- render.ts: isAllowedKatexStyle(boolean) 换成 filterKatexStyle(string)，逐条声明过滤 + 重新序列化；DOMPurify 钩子改写 data.attrValue 而非丢整条属性
+- 新增字符白名单 KATEX_STYLE_SAFE_CHARS（仅字母数字 #%.+- 空格 Tab :），使 url()/var()/expression()/calc()、CSS 转义、注释、!important 结构性不可达；其后按属性分类做值文法（长度/线型/颜色/position:relative）
+- 泳道从被动兜底改为显式 activeLane 标记 + finally 复位（fail-closed）
+- KaTeX 白名单补 mpadded/mphantom 与 15 个 MathML 属性；href/src/alt/xlink:href 永久排除并由测试锁定
+- 严格泳道仅新增惰性标签 sub/sup/span/details/summary + open；任务列表用 span 标记（不引入 input），图片降级为 scheme 校验链接（不引入 img），脚注渲染为纯文本（不产生 href）
+- 脚注引用需与定义配对，避免吞掉正文里的 array[^2] / [^a-z]；定义容忍 3 空格缩进；标签上限放宽到 256 防止静默丢正文
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `873a722` | (see git log) |
+| `04d4198` | (see git log) |
+
+### Testing
+
+- [OK] markdown 测试 58 -> 135（AC-1 保真 / AC-2 安全 / AC-3 Markdown 保真）；全量 474 passed
+- [OK] 四条门禁全绿：test / svelte-check 0 errors 0 warnings / eslint clean / build（gzip JS 150KB + CSS 16KB）
+- [OK] 浏览器深浅色实测：\boxed 方框、array 竖线、\phantom 隐藏、\textcolor/\colorbox 配色、\rule 横线均修复，常规公式无回归
+- [OK] 独立对抗验证：javascript:/data:/vbscript: 图片 URL 的 href 被完全剥离；KaTeX 抛错后严格泳道无权限泄漏；源文本伪造 class=katex + style 无效
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- \stackrel/\overset/\underset 的 MathML 缺口不可修（HTML MathML 文本整合点规范），仅影响隐藏无障碍层，已在代码注释与 PRD 记录
+- <summary> 触摸目标约 24px 低于 44px 指南，属助手内容而非应用 chrome，暂未处理
+- 08-15-sidebar-ui-refresh 仍为 in_progress，其代码改动未提交

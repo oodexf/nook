@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-08-15
+- **Total Sessions**: 8
+- **Last Active**: 2026-08-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~203 | Active |
+| `journal-1.md` | ~247 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-08-18 | Markdown 公式与 HTML 渲染保真修复 | `873a722`, `04d4198` | `uifix` |
 | 7 | 2026-08-15 | 鉴权页面重构收尾：复用 PrimaryButton、提交审查与 Trellis 补录 | `3b1ab42`, `a6c72b8`, `d1781e2`, `4b4ee43` | `uifix` |
 | 6 | 2026-08-15 | 鉴权页面重构为简洁卡片 + 错误态落到输入框 | - | `uifix` |
 | 5 | 2026-08-11 | Archive remaining tasks & LaTeX delimiter work | `302c506`, `7c4ef64` | `uifix` |
