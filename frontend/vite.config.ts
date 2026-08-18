@@ -11,7 +11,9 @@ export default defineConfig(({ mode }) => ({
   ...(mode === "test" ? { resolve: { conditions: ["browser"] } } : {}),
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:8080"
+      // Allow `scripts/dev.sh --port` to redirect the dev proxy at a
+      // non-default backend port. Defaults to 8080 for plain `vite`.
+      "/api": process.env.VITE_BACKEND_URL ?? "http://127.0.0.1:8080"
     }
   }
 }));
