@@ -245,3 +245,49 @@
 - \stackrel/\overset/\underset 的 MathML 缺口不可修（HTML MathML 文本整合点规范），仅影响隐藏无障碍层，已在代码注释与 PRD 记录
 - <summary> 触摸目标约 24px 低于 44px 指南，属助手内容而非应用 chrome，暂未处理
 - 08-15-sidebar-ui-refresh 仍为 in_progress，其代码改动未提交
+
+
+## Session 9: 对话侧边栏 UI 升级收尾
+
+**Date**: 2026-08-18
+**Task**: 对话侧边栏 UI 升级收尾
+**Branch**: `uifix`
+
+### Summary
+
+接手上一次会话留下的 08-15 侧边栏改动，补完唯一未闭合的 AC11（reduced-motion），过质量复核，把 5 处计划外夹带改动如实备案并拆成独立提交后收尾归档。
+
+### Main Changes
+
+- AppShell.svelte: 新增局部 @media (prefers-reduced-motion: reduce) { transition-delay: 0s }，修复折叠列在 reduced-motion 下仍滞留 tab order 160ms 的残留
+- design.md 新增 8.4/8.5 两节：如实记录 5 处计划外夹带改动（ChatPane 头部重做 + model-label、紧凑尺度 token、栅格 300→272px、test-provider 读 .env、vite 代理）与 AC11 的发现修复过程
+- component-guidelines.md：写入两条规范——44×44 是粗指针下限（用 any-pointer: coarse 恢复而非全局放弃）、reduced-motion 全局重置只归零 duration 不归零 delay
+- 提交拆分：sidebar 主体 / ChatPane 夹带 / test fixtures 夹带 / dev 代理 / spec 各自独立，夹带项可单独回滚
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4758ec1` | (see git log) |
+| `5b8a436` | (see git log) |
+| `d266287` | (see git log) |
+| `2874313` | (see git log) |
+| `f02affb` | (see git log) |
+
+### Testing
+
+- [OK] 四条门禁全绿：test 474 passed(29 files) / check 555 files 0 errors 0 warnings / lint clean / build gzip JS 150KB + CSS 16KB
+- [OK] 浏览器实测（用 stub fetch 挂载真实 AppShell，不涉及任何访问令牌）：AC4 hover 前后 getBoundingClientRect 完全一致；AC3 四种显现条件逐一确认（菜单展开那次 hover/focus/选中均为 false）；AC7 选中底色实测 rgba(29,78,216,0.08)；AC9 light/dark × 桌面/抽屉 四组合
+- [OK] AC11 定量验证：把 @media 条件临时改写为 all 读计算样式，无该规则时 transition-delay 仍为 0.16s，有则 0s
+- [OK] trellis-check 变异测试确认 buildSidebarSections 用例非同义反复（改坏分档逻辑 3 条红、改坏空档过滤 7 条红）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- test-provider.ts 在模块导入期读仓库根 .env，使单元测试夹具本机与 CI 不同；已开独立后台任务收口（改为固定常量 test-model）
+- Sidebar.svelte / ChatPane.svelte 出现 8 次 border-radius: 8px 字面量，若紧凑尺度保留应提为 --radius-xs token
+- 分档的 DST 正确性已实现但无测试覆盖，朴素毫秒减法实现同样能通过现有用例，需 TZ 受控测试才能锁死
+- 六个分组的 <ul> 与 .section-label 无 aria-labelledby 关联，读屏体验可改进（不在任何 AC 内）
