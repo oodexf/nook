@@ -37,6 +37,34 @@ API, and test paths.
   Markdown remains under the strict no-style/no-SVG policy, while only
   per-render provenance-matched `trust: false` KaTeX fragments receive the
   exact KaTeX-only sanitizer needed for MathML and layout geometry.
+- The KaTeX lane filters `style` **per declaration**, not per attribute: each
+  declaration is checked on its own, survivors are re-serialized, and the
+  attribute is dropped only when nothing survives. Every declaration first
+  passes a character allow-list (letters, digits, `#%.+-`, space, tab, `:`)
+  that makes all CSS functional notation, escape sequences, comments, and
+  `!important` unreachable, then a per-property value grammar (length /
+  line-style / color / `position: relative`). Ordinary Markdown still gets
+  zero `style`.
+- `href`, `src`, `alt`, and `xlink:href` are the only URL carriers in KaTeX's
+  attribute set and are permanently excluded from the KaTeX allow-list.
+- Task lists, images, and footnotes degrade rather than disappear, and none of
+  them adds a carrier: checkboxes are inert `span` markers (never `input`),
+  images become scheme-checked links (never `img`, so an assistant message
+  cannot trigger a third-party request), and footnotes render as visible text
+  with no `href` at all.
+- A footnote reference is recognized only when the same render has a matching
+  definition. `[^…]` is ordinary prose (regex character classes, array
+  indexing) far more often than it is a footnote, so an unpaired reference
+  stays literal text instead of becoming a superscript that drops its caret.
+  Definitions need no pairing and accept up to three leading spaces, matching
+  the link-reference-definition shape they must out-tokenize.
+- A degradation path must never lose content silently. Any `[^…]:` line the
+  footnote tokenizer declines falls through to Marked's own definition
+  tokenizer, which discards the note body without a trace, so its label bound
+  stays generous rather than tight. For the same reason the degraded image
+  link escapes its text and href while leaving a well-formed entity alone:
+  `&amp;` in Markdown source already means a literal `&`, and re-encoding it
+  would surface `&amp;` to the reader.
 - Production is static output served by Rust; no Node.js server exists.
 
 ## Quality Check

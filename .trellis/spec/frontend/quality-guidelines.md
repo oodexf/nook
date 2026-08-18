@@ -83,13 +83,31 @@ iframe
 unsafe SVG
 malformed HTML
 raw-source attempts to forge formula placeholders, KaTeX classes, style, or SVG
+raw-source math, mpadded, input, img, and mo[href] elements
 untrusted TeX URL/HTML commands under trust:false
+one attack payload per allow-listed KaTeX style property: url(), var(),
+  expression(), image-set(), attr(), element(), calc(), rgb(), CSS escapes,
+  !important, quotes, entities, non-ASCII homoglyphs, position:absolute/fixed
+mixed declarations keep the legal one and drop the illegal one
+sanitizer-lane leakage: a KaTeX render followed by a strict render
+degraded task list / image / footnote paths produce no input, img, or href
+URL carriers (href, src, alt, xlink:href) injected into the KaTeX lane through
+  a DOMPurify element hook, with an allow-listed control attribute proving the
+  injection reached the attribute filter
+unpaired `[^…]` prose stays literal instead of becoming a superscript
 ```
+
+Style-rejection cases assert the exact surviving declaration text, not merely
+the absence of a substring, so a weakened veto fails instead of passing
+silently.
 
 Formula tests must also prove the positive isolated lane retains visual KaTeX,
 MathML accessibility, verified numeric layout style, and required SVG/path
-geometry. Never broaden ordinary Markdown style/SVG/URL permissions to make a
-formula render.
+geometry, plus the layout declarations a whole-attribute drop used to destroy
+(`\phantom` `color:transparent`, `\boxed` height + border, `array` separator
+`border-right-*`, `\rule`, `\textcolor`, `\colorbox`). Never broaden ordinary
+Markdown style/SVG/URL permissions to make a formula render: the KaTeX style
+allowance is per declaration and lives only in the KaTeX lane.
 
 Browser bundle inspection confirms provider credentials and instance token are
 absent.
