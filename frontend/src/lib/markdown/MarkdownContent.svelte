@@ -162,6 +162,83 @@
     white-space: pre;
   }
 
+  /* Task list markers. The renderer emits an inert `span`, never an
+     `input`, so the checkbox is drawn here. The checked state is expressed
+     by the `::after` tick geometry as well as color, so it stays legible
+     without color perception and at low contrast. */
+  .markdown :global(li.task-item) {
+    list-style: none;
+  }
+
+  .markdown :global(.task-marker) {
+    display: inline-block;
+    position: relative;
+    width: 1em;
+    height: 1em;
+    margin-right: 0.15em;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--surface);
+    vertical-align: -0.15em;
+  }
+
+  .markdown :global(.task-marker-checked) {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .markdown :global(.task-marker-checked)::after {
+    content: "";
+    position: absolute;
+    top: 0.08em;
+    left: 0.3em;
+    width: 0.28em;
+    height: 0.55em;
+    border: solid var(--accent-contrast);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  /* Keep sub/sup from stretching the line box (chemistry, units, footnotes). */
+  .markdown :global(sub),
+  .markdown :global(sup) {
+    position: relative;
+    font-size: 0.75em;
+    line-height: 0;
+    vertical-align: baseline;
+  }
+
+  .markdown :global(sup) {
+    top: -0.5em;
+  }
+
+  .markdown :global(sub) {
+    bottom: -0.25em;
+  }
+
+  /* Footnotes render as visible text (never as a link); the reference is a
+     superscript marker and the definition a muted trailing line. */
+  .markdown :global(.footnote-ref) {
+    color: var(--muted);
+  }
+
+  .markdown :global(.footnote-def) {
+    color: var(--muted);
+    font-size: 0.9em;
+  }
+
+  .markdown :global(details) {
+    margin: var(--space-3) 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  .markdown :global(summary) {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
   .markdown :global(blockquote) {
     padding-left: var(--space-3);
     border-left: 3px solid var(--border-strong);

@@ -17,9 +17,17 @@
 
 import DOMPurify from "dompurify";
 import katex from "katex";
-import { Marked, type Tokens } from "marked";
+import {
+  Marked,
+  type TokenizerAndRendererExtension,
+  type Tokens
+} from "marked";
 import markedKatex from "marked-katex-extension";
 
+// `sub`/`sup`/`span`/`details`/`summary` are inert structure only: none of
+// them carries a URL attribute, an event semantic, or a script surface, so
+// adding them does not give the ordinary lane any style, SVG, MathML, or URL
+// capability (quality-guidelines.md §Security Gate).
 const STRICT_ALLOWED_TAGS = [
   "a",
   "p",
@@ -34,6 +42,11 @@ const STRICT_ALLOWED_TAGS = [
   "em",
   "strong",
   "del",
+  "sub",
+  "sup",
+  "span",
+  "details",
+  "summary",
   "h1",
   "h2",
   "h3",
@@ -48,7 +61,7 @@ const STRICT_ALLOWED_TAGS = [
   "td"
 ];
 
-const STRICT_ALLOWED_ATTR = ["href", "title", "class"];
+const STRICT_ALLOWED_ATTR = ["href", "title", "class", "open"];
 
 // Explicit scheme allow-list: http(s), mailto, tel, plus relative URLs and
 // fragments. The KaTeX lane permits no URL-bearing attribute at all.
@@ -63,7 +76,18 @@ const STRICT_PURIFY_CONFIG = {
   ALLOW_ARIA_ATTR: false
 };
 
-/** Tags observed in the fixed common-formula corpus covered by tests. */
+/**
+ * The complete element set KaTeX 0.17 can emit (derived from its bundle),
+ * not just the corpus the first tests happened to cover. `mpadded` and
+ * `mphantom` were missing, which silently dropped `\fcolorbox` padding and
+ * `\phantom` semantics from the accessibility layer.
+ *
+ * Known, unfixable gap: KaTeX renders `\stackrel`/`\overset`/`\underset` as
+ * `<mo><mover>…</mover></mo>`. HTML's MathML text integration point rules
+ * make DOMPurify drop MathML children of `mo`/`mi`/`mn`/`ms`/`mtext`. That
+ * only affects the hidden `.katex-mathml` layer; the visual `.katex-html`
+ * lane and the `<annotation>` TeX source are unaffected.
+ */
 const KATEX_ALLOWED_TAGS = [
   "span",
   "math",
@@ -89,12 +113,22 @@ const KATEX_ALLOWED_TAGS = [
   "mtr",
   "mtd",
   "menclose",
+  "mpadded",
+  "mphantom",
   "svg",
   "path",
   "line"
 ];
 
-/** No href/src/xlink or other URL carrier is present in this list. */
+/**
+ * Every attribute KaTeX 0.17 can set, minus its URL carriers.
+ *
+ * `href` (`\href`/`\url`), `src` and `alt` (`mglyph`/`\includegraphics`), and
+ * `xlink:href` are the only URL-bearing attributes in KaTeX's set. They are
+ * unreachable under `trust: false` anyway, and they are permanently excluded
+ * here so a future KaTeX change cannot introduce a network or navigation
+ * carrier into the message body. Tests lock this exclusion.
+ */
 const KATEX_ALLOWED_ATTR = [
   "class",
   "style",
@@ -105,15 +139,30 @@ const KATEX_ALLOWED_ATTR = [
   "accent",
   "accentunder",
   "columnalign",
+  "columnlines",
   "columnspacing",
+  "depth",
   "displaystyle",
   "fence",
+  "largeop",
+  "linebreak",
   "linethickness",
+  "lspace",
+  "mathbackground",
+  "mathcolor",
+  "mathsize",
   "mathvariant",
+  "maxsize",
+  "minsize",
   "notation",
+  "rowlines",
   "rowspacing",
+  "rspace",
   "scriptlevel",
+  "separator",
   "stretchy",
+  "valign",
+  "voffset",
   "width",
   "height",
   "viewBox",
@@ -139,40 +188,184 @@ const KATEX_PURIFY_CONFIG = {
   ALLOW_ARIA_ATTR: false
 };
 
-const KATEX_STYLE_PROPERTIES = new Set([
-  "border-bottom-width",
-  "height",
-  "left",
-  "margin-left",
-  "margin-right",
-  "min-width",
-  "padding-left",
-  "position",
-  "top",
-  "vertical-align",
-  "width"
+/**
+ * Payload veto (first pass, applied to every declaration regardless of
+ * property). A declaration survives only if every character is a letter,
+ * digit, `#`, `%`, `.`, `+`, `-`, space, tab, or the `:` separator.
+ *
+ * This single allow-list closes, without enumerating anything dangerous:
+ *
+ * - all functional notation — `url()`, `var()`, `expression()`, `image-set()`,
+ *   `attr()`, `element()`, `calc()` — because `(` can never appear;
+ * - CSS escape sequences such as `\72 ed`, because `\` can never appear;
+ * - CSS comment splicing, because neither `/` nor `*` can appear, and
+ *   `!important` priority escalation, because `!` can never appear;
+ * - markup and entity injection (`<`, `>`, `"`, `'`, `&`) and at-rules (`@`);
+ * - control characters, and every non-ASCII code point (so homoglyph and
+ *   bidi tricks cannot reach the CSS parser).
+ */
+const KATEX_STYLE_SAFE_CHARS = /^[a-zA-Z0-9#%.+\- \t:]*$/;
+
+/** Lengths KaTeX emits: unitless zeroes plus em/ex/rem/pt/px/% dimensions. */
+const KATEX_LENGTH_TOKEN = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:em|ex|rem|pt|px|%)?$/;
+
+const KATEX_LINE_STYLE_TOKENS = new Set([
+  "none",
+  "hidden",
+  "solid",
+  "dashed",
+  "dotted",
+  "double",
+  "groove",
+  "ridge",
+  "inset",
+  "outset"
 ]);
 
-// KaTeX 0.17 emits only numeric layout values (unitless, em, or percent),
-// plus `position:relative`, for the supported corpus. This intentionally
-// excludes url(), CSS variables, colors, transforms, and arbitrary tokens.
-const KATEX_NUMERIC_STYLE_VALUE = /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:em|%)?$/;
+// Hex colors (3/4/6/8 digits) or a bare alphabetic keyword. Keywords cover
+// `transparent`, `currentcolor`, and the CSS named colors; because no
+// parenthesis, comma, or slash can reach here, `rgb()`/`color()` forms and
+// any URL-bearing value are already impossible.
+const KATEX_COLOR_TOKEN =
+  /^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]+)$/;
 
-function isAllowedKatexStyle(style: string): boolean {
-  const declarations = style.split(";").filter((part) => part.trim() !== "");
-  if (declarations.length === 0) return false;
+type StyleTokenKind = "length" | "lineStyle" | "color";
 
-  return declarations.every((declaration) => {
-    const separator = declaration.indexOf(":");
-    if (separator < 1) return false;
-    const property = declaration.slice(0, separator).trim().toLowerCase();
-    const value = declaration.slice(separator + 1).trim().toLowerCase();
-    if (!KATEX_STYLE_PROPERTIES.has(property)) return false;
-    return (
-      (property === "position" && value === "relative") ||
-      (property !== "position" && KATEX_NUMERIC_STYLE_VALUE.test(value))
-    );
-  });
+type StyleRule =
+  | { kind: "tokens"; accepts: readonly StyleTokenKind[]; maxTokens: number }
+  | { kind: "keyword"; allowed: ReadonlySet<string> };
+
+function tokenRule(
+  accepts: readonly StyleTokenKind[],
+  maxTokens: number
+): StyleRule {
+  return { kind: "tokens", accepts, maxTokens };
+}
+
+/**
+ * The properties KaTeX 0.17 actually writes inline (derived from its bundle),
+ * each with the value grammar of its own category. `position` stays limited
+ * to `relative`: `absolute`/`fixed` would let a formula fragment escape the
+ * message container and overlay the rest of the page (clickjacking surface),
+ * and KaTeX's own absolute positioning comes from the self-hosted stylesheet
+ * rather than inline styles.
+ */
+const KATEX_STYLE_RULES = new Map<string, StyleRule>([
+  ["height", tokenRule(["length"], 4)],
+  ["width", tokenRule(["length"], 4)],
+  ["min-width", tokenRule(["length"], 4)],
+  ["left", tokenRule(["length"], 4)],
+  ["top", tokenRule(["length"], 4)],
+  ["bottom", tokenRule(["length"], 4)],
+  ["vertical-align", tokenRule(["length"], 4)],
+  ["margin", tokenRule(["length"], 4)],
+  ["margin-left", tokenRule(["length"], 4)],
+  ["margin-right", tokenRule(["length"], 4)],
+  ["margin-top", tokenRule(["length"], 4)],
+  ["margin-bottom", tokenRule(["length"], 4)],
+  ["padding-left", tokenRule(["length"], 4)],
+  ["border-width", tokenRule(["length"], 4)],
+  ["border-top-width", tokenRule(["length"], 4)],
+  ["border-right-width", tokenRule(["length"], 4)],
+  ["border-bottom-width", tokenRule(["length"], 4)],
+  ["border-left-width", tokenRule(["length"], 4)],
+  ["border-style", tokenRule(["lineStyle"], 4)],
+  ["border-top-style", tokenRule(["lineStyle"], 4)],
+  ["border-right-style", tokenRule(["lineStyle"], 4)],
+  ["border-bottom-style", tokenRule(["lineStyle"], 4)],
+  ["border-left-style", tokenRule(["lineStyle"], 4)],
+  ["color", tokenRule(["color"], 4)],
+  ["background-color", tokenRule(["color"], 4)],
+  ["border-color", tokenRule(["color"], 4)],
+  ["border-top-color", tokenRule(["color"], 4)],
+  ["border-right-color", tokenRule(["color"], 4)],
+  ["border-bottom-color", tokenRule(["color"], 4)],
+  ["border-left-color", tokenRule(["color"], 4)],
+  ["border", tokenRule(["length", "lineStyle", "color"], 3)],
+  ["text-shadow", tokenRule(["length", "color"], 8)],
+  ["position", { kind: "keyword", allowed: new Set(["relative"]) }]
+]);
+
+function matchesTokenKind(kind: StyleTokenKind, token: string): boolean {
+  switch (kind) {
+    case "length":
+      return KATEX_LENGTH_TOKEN.test(token);
+    case "lineStyle":
+      return KATEX_LINE_STYLE_TOKENS.has(token);
+    case "color":
+      return KATEX_COLOR_TOKEN.test(token);
+  }
+}
+
+function filterKatexDeclaration(declaration: string): string | undefined {
+  if (declaration.trim() === "") return undefined;
+  if (!KATEX_STYLE_SAFE_CHARS.test(declaration)) return undefined;
+
+  const separator = declaration.indexOf(":");
+  if (separator < 1) return undefined;
+  const property = declaration.slice(0, separator).trim().toLowerCase();
+  const value = declaration.slice(separator + 1).trim().toLowerCase();
+  if (property === "" || value === "") return undefined;
+
+  const rule = KATEX_STYLE_RULES.get(property);
+  if (rule === undefined) return undefined;
+  if (rule.kind === "keyword") {
+    return rule.allowed.has(value) ? `${property}:${value}` : undefined;
+  }
+
+  const tokens = value.split(/[ \t]+/);
+  if (tokens.length > rule.maxTokens) return undefined;
+  const accepted = tokens.every((token) =>
+    rule.accepts.some((kind) => matchesTokenKind(kind, token))
+  );
+  return accepted ? `${property}:${tokens.join(" ")}` : undefined;
+}
+
+/**
+ * Rewrites a KaTeX `style` attribute declaration by declaration: legal
+ * declarations are kept, illegal ones are dropped, and the survivors are
+ * re-serialized. An empty result means nothing survived and the caller drops
+ * the whole attribute.
+ *
+ * The previous all-or-nothing check discarded the entire attribute whenever
+ * one declaration was unrecognized, which is what made `\phantom` visible and
+ * collapsed `\boxed`. Per-declaration filtering does not widen the attack
+ * surface: that surface is defined by the property and value grammars above,
+ * each of which every surviving declaration passes on its own.
+ *
+ * Exported for the security matrix: `trust: false` KaTeX cannot be coerced
+ * into emitting the hostile values this function must reject, so the payload
+ * cases are unreachable through the pipeline alone.
+ */
+export function filterKatexStyle(style: string): string {
+  const kept: string[] = [];
+  for (const declaration of style.split(";")) {
+    const filtered = filterKatexDeclaration(declaration);
+    if (filtered !== undefined) kept.push(filtered);
+  }
+  return kept.join(";");
+}
+
+type SanitizerLane = "strict" | "katex";
+
+// The `uponSanitizeAttribute` hook is installed on the shared DOMPurify
+// instance, so it fires for both lanes. The marker makes the lane explicit
+// instead of relying on `style` being absent from the strict `ALLOWED_ATTR`.
+let activeLane: SanitizerLane = "strict";
+
+function sanitizeIn(
+  lane: SanitizerLane,
+  html: string,
+  config: Parameters<typeof DOMPurify.sanitize>[1]
+): string {
+  activeLane = lane;
+  try {
+    return DOMPurify.sanitize(html, config);
+  } finally {
+    // Fail closed: any throw returns to the most restrictive lane rather than
+    // leaking KaTeX style permission into the next ordinary render.
+    activeLane = "strict";
+  }
 }
 
 type MathRecord = {
@@ -574,8 +767,145 @@ for (const extension of mathExtension.extensions ?? []) {
   }
 }
 
+// Footnotes: Marked has no footnote support, so `[^1]: text` was consumed as
+// a link reference definition and `[^1]` became an anchor pointing at a
+// non-existent relative path while the note body disappeared. Both forms are
+// recognized here and rendered as visible, inert text. Neither emits an
+// `href`, so no URL surface is added. Only the `[^` prefix is claimed, which
+// leaves ordinary reference definitions (`[ref]: url`) and reference links
+// (`[text][ref]`) untouched.
+// The label bound is generous rather than tight: a definition line this
+// extension declines is swallowed by Marked's own `def` tokenizer, which
+// discards the note body silently — the exact failure R8 exists to prevent.
+// The bound only guards against a pathological single-line label; both classes
+// exclude `]` and `\n`, so matching stays linear.
+const FOOTNOTE_REFERENCE = /^\[\^([^\]\s][^\]\n]{0,255})\]/;
+const FOOTNOTE_DEFINITION = /^ {0,3}\[\^([^\]\n]{1,256})\]:[ \t]*([^\n]*)(?:\n|$)/;
+const FOOTNOTE_DEFINITION_SCAN = /^ {0,3}\[\^([^\]\n]{1,256})\]:/gm;
+
+const NO_FOOTNOTE_LABELS: ReadonlySet<string> = new Set();
+
+/**
+ * References are recognized only in pairs (R8). `[^…]` is ordinary prose far
+ * more often than it is a footnote — regex character classes (`[^a-z]`) and
+ * array indexing (`array[^2]`) both hit the same shape — so an unpaired
+ * reference must stay literal text instead of becoming a superscript that
+ * silently drops its caret. Definitions need no pairing: `[^` can never begin
+ * an ordinary link reference definition.
+ */
+let activeFootnoteLabels: ReadonlySet<string> = NO_FOOTNOTE_LABELS;
+
+function collectFootnoteLabels(source: string): ReadonlySet<string> {
+  const labels = new Set<string>();
+  // Marked normalizes line endings before lexing; match that here so a CRLF
+  // document pairs exactly the same way.
+  for (const match of source.replace(/\r\n?/g, "\n").matchAll(
+    FOOTNOTE_DEFINITION_SCAN
+  )) {
+    const label = match[1];
+    if (label !== undefined) labels.add(label);
+  }
+  return labels.size === 0 ? NO_FOOTNOTE_LABELS : labels;
+}
+
+function definedFootnoteLabelAt(source: string): string | undefined {
+  const match = FOOTNOTE_REFERENCE.exec(source);
+  const label = match?.[1];
+  if (label === undefined || !activeFootnoteLabels.has(label)) return undefined;
+  return label;
+}
+
+function footnoteMarker(label: string): string {
+  return `<sup class="footnote-ref">[${escapeHtml(label)}]</sup>`;
+}
+
+const footnoteExtensions: TokenizerAndRendererExtension[] = [
+  {
+    name: "footnoteRef",
+    level: "inline",
+    start(source) {
+      for (
+        let index = source.indexOf("[^");
+        index !== -1;
+        index = source.indexOf("[^", index + 2)
+      ) {
+        if (definedFootnoteLabelAt(source.slice(index)) !== undefined) {
+          return index;
+        }
+      }
+      return undefined;
+    },
+    tokenizer(source) {
+      const label = definedFootnoteLabelAt(source);
+      if (label === undefined) return undefined;
+      return { type: "footnoteRef", raw: `[^${label}]`, text: label };
+    },
+    renderer(token) {
+      return footnoteMarker(String(token.text ?? ""));
+    }
+  },
+  {
+    name: "footnoteDef",
+    level: "block",
+    start(source) {
+      const match = /(?:^|\n) {0,3}\[\^[^\]\n]{1,64}\]:/.exec(source);
+      if (match === null) return undefined;
+      return match.index + (match[0].startsWith("\n") ? 1 : 0);
+    },
+    tokenizer(source) {
+      const match = FOOTNOTE_DEFINITION.exec(source);
+      if (match === null) return undefined;
+      return {
+        type: "footnoteDef",
+        raw: match[0],
+        label: match[1],
+        text: match[2],
+        tokens: this.lexer.inlineTokens(match[2] ?? "")
+      };
+    },
+    renderer(token) {
+      const body = this.parser.parseInline(token.tokens ?? []);
+      return `<p class="footnote-def">${footnoteMarker(
+        String(token.label ?? "")
+      )} ${body}</p>\n`;
+    }
+  }
+];
+
 const parser = new Marked({ gfm: true, breaks: true });
 parser.use(mathExtension);
+parser.use({ extensions: footnoteExtensions });
+parser.use({
+  renderer: {
+    // Task list items carry their state on the `li` so the stylesheet needs
+    // no `:has()`; the marker itself is a `span`, never an `input` (an input
+    // would reintroduce `formaction` and `type=image` URL carriers).
+    listitem(item) {
+      if (item.task !== true) return false;
+      const state = item.checked === true ? " task-item-checked" : "";
+      return `<li class="task-item${state}">${this.parser.parse(item.tokens)}</li>\n`;
+    },
+    checkbox({ checked }) {
+      const state = checked ? " task-marker-checked" : "";
+      return `<span class="task-marker${state}"></span> `;
+    },
+    // Images degrade to a link instead of vanishing. `img` stays out of the
+    // allow-list on purpose: a remote image in an assistant message would
+    // leak the reader's IP and read time to a third-party host with no user
+    // interaction. The href still passes the unchanged scheme allow-list and
+    // picks up `target`/`rel` hardening in `afterSanitizeAttributes`.
+    image({ href, text, tokens }) {
+      const label =
+        tokens !== undefined && tokens.length > 0
+          ? this.parser.parseInline(tokens, this.parser.textRenderer)
+          : text;
+      const shown = label.trim() === "" ? href : label;
+      return `<a href="${escapeHtmlKeepingEntities(
+        href
+      )}">${escapeHtmlKeepingEntities(shown)}</a>`;
+    }
+  }
+});
 
 let sanitizerHooksInstalled = false;
 
@@ -584,9 +914,17 @@ function ensureSanitizerHooks(): void {
   sanitizerHooksInstalled = true;
 
   DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
-    if (data.attrName === "style" && !isAllowedKatexStyle(data.attrValue)) {
+    if (data.attrName !== "style") return;
+    if (activeLane !== "katex") {
       data.keepAttr = false;
+      return;
     }
+    const kept = filterKatexStyle(data.attrValue);
+    if (kept === "") {
+      data.keepAttr = false;
+      return;
+    }
+    data.attrValue = kept;
   });
 
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
@@ -607,13 +945,32 @@ function stripSourceKatexIdentity(root: ParentNode): void {
   }
 }
 
+const HTML_ESCAPES: Readonly<Record<string, string>> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;"
+};
+
 function escapeHtml(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return text.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char] ?? char);
+}
+
+// Markdown-authored text already carries decoded entities: `&amp;` in the
+// source means a literal ampersand, so re-encoding it would surface
+// `&amp;` to the reader. Leave a well-formed entity alone and escape every
+// other `&`, matching Marked's own semantics for the same call sites. Output
+// is still fully escaped markup — DOMPurify re-parses it as a text node, so
+// this changes presentation only, never the parse.
+const HTML_ESCAPES_KEEPING_ENTITIES =
+  /[<>"']|&(?!(?:#\d{1,7}|#[Xx][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{0,31});)/g;
+
+function escapeHtmlKeepingEntities(text: string): string {
+  return text.replace(
+    HTML_ESCAPES_KEEPING_ENTITIES,
+    (char) => HTML_ESCAPES[char] ?? char
+  );
 }
 
 function renderKatex(record: MathRecord): string {
@@ -631,7 +988,7 @@ function renderKatex(record: MathRecord): string {
     generated = `<span class="${classes}">${escapeHtml(record.tex)}</span>`;
   }
 
-  return DOMPurify.sanitize(generated, KATEX_PURIFY_CONFIG);
+  return sanitizeIn("katex", generated, KATEX_PURIFY_CONFIG);
 }
 
 function insertRecordedMath(
@@ -674,14 +1031,20 @@ export function renderMarkdown(source: string): string {
     throw new Error("renderMarkdown must not be called re-entrantly");
   }
 
+  // Collected before the context is installed so a failure here cannot leave
+  // `activeMathContext` set and wedge every later render on the re-entrancy
+  // guard.
+  const footnoteLabels = collectFootnoteLabels(source);
   activeMathContext = context;
+  activeFootnoteLabels = footnoteLabels;
   let parsed: string;
   try {
     parsed = parser.parse(source, { async: false });
   } finally {
     activeMathContext = null;
+    activeFootnoteLabels = NO_FOOTNOTE_LABELS;
   }
 
-  const strictHtml = DOMPurify.sanitize(parsed, STRICT_PURIFY_CONFIG);
+  const strictHtml = sanitizeIn("strict", parsed, STRICT_PURIFY_CONFIG);
   return insertRecordedMath(strictHtml, context);
 }

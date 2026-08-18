@@ -8,7 +8,9 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { renderMarkdown } from "./render";
+import DOMPurify from "dompurify";
+
+import { filterKatexStyle, renderMarkdown } from "./render";
 
 function render(source: string): HTMLElement {
   const host = document.createElement("div");
@@ -593,5 +595,482 @@ describe("renderMarkdown allowed formatting", () => {
   it("treats single newlines as line breaks (chat convention)", () => {
     const host = render("第一行\n第二行");
     expect(host.querySelector("br")).not.toBeNull();
+  });
+});
+
+/**
+ * AC-1: KaTeX layout declarations survive per-declaration filtering. Before
+ * this task a single unrecognized declaration dropped the whole `style`
+ * attribute, so `\phantom` became visible, `\boxed` collapsed, `array`
+ * separators vanished and `\rule` disappeared.
+ */
+describe("renderMarkdown formula fidelity (AC-1)", () => {
+  function styleOf(host: HTMLElement, selector: string): string {
+    const element = host.querySelector<HTMLElement>(selector);
+    expect(element, `missing ${selector}`).not.toBeNull();
+    return element?.getAttribute("style") ?? "";
+  }
+
+  it("keeps \\phantom content hidden via color:transparent", () => {
+    const host = render("$a\\phantom{XYZ}c$. ");
+    const hidden = Array.from(
+      host.querySelectorAll<HTMLElement>(".katex-html [style]")
+    ).filter((element) =>
+      (element.getAttribute("style") ?? "").includes("color:transparent")
+    );
+    expect(hidden.length).toBeGreaterThan(0);
+    expect(hidden.map((element) => element.textContent).join("")).toContain(
+      "XYZ"
+    );
+  });
+
+  it.each(["\\hphantom{X}", "\\vphantom{X}"])(
+    "keeps %s hidden as well",
+    (tex) => {
+      const host = render(`$a${tex}c$. `);
+      expect(host.innerHTML).toContain("color:transparent");
+    }
+  );
+
+  it("keeps the \\boxed frame geometry", () => {
+    const host = render("$$\\boxed{x=1}$$");
+    const style = styleOf(host, ".fbox");
+    expect(style).toMatch(/height:\s*[\d.]+em/);
+    expect(style).toContain("border-style:solid");
+    expect(style).toMatch(/border-width:\s*[\d.]+em/);
+  });
+
+  it("keeps array column separators", () => {
+    const host = render(
+      "$$\n\\begin{array}{c|c} a & b \\\\ c & d \\end{array}\n$$"
+    );
+    const style = styleOf(host, ".vertical-separator");
+    expect(style).toMatch(/border-right-width:\s*[\d.]+em/);
+    expect(style).toContain("border-right-style:solid");
+    expect(style).toMatch(/height:\s*[\d.]+em/);
+    expect(style).toContain("margin:0 -0.02em");
+  });
+
+  it("keeps \\rule geometry", () => {
+    const host = render("$a\\rule{2em}{1pt}b$. ");
+    const style = styleOf(host, ".rule");
+    expect(style).toContain("border-right-width:2em");
+    expect(style).toContain("border-top-width:0.1em");
+    expect(style).toContain("bottom:0em");
+  });
+
+  it("keeps \\textcolor, \\colorbox, and \\fcolorbox colors", () => {
+    expect(styleOf(render("$\\textcolor{red}{x}$. "), ".mord[style]")).toContain(
+      "color:red"
+    );
+    expect(styleOf(render("$\\colorbox{yellow}{y}$. "), ".colorbox")).toContain(
+      "background-color:yellow"
+    );
+
+    const framed = styleOf(
+      render("$\\fcolorbox{blue}{yellow}{z}$. "),
+      ".fcolorbox"
+    );
+    expect(framed).toContain("background-color:yellow");
+    expect(framed).toContain("border-color:blue");
+    expect(framed).toContain("border-style:solid");
+  });
+
+  it("keeps mpadded/mphantom MathML nodes and their layout attributes", () => {
+    const host = render("$\\fcolorbox{blue}{yellow}{z}$. ");
+    const padded = host.querySelector("mpadded");
+    expect(padded).not.toBeNull();
+    expect(padded?.getAttribute("lspace")).toBe("3pt");
+    expect(padded?.getAttribute("voffset")).toBe("3pt");
+    expect(padded?.getAttribute("mathbackground")).toBe("yellow");
+    expect(padded?.getAttribute("style")).toContain("border:0.04em solid blue");
+
+    expect(render("$a\\phantom{x}b$. ").querySelector("mphantom")).not.toBeNull();
+  });
+
+  it("keeps array column line and row spacing MathML attributes", () => {
+    const host = render(
+      "$$\n\\begin{array}{c|c} a & b \\\\ c & d \\end{array}\n$$"
+    );
+    expect(host.querySelector("mtable")?.getAttribute("columnlines")).toContain(
+      "solid"
+    );
+  });
+});
+
+/**
+ * AC-2: every newly allow-listed style property gets an attack payload.
+ * `filterKatexStyle` is exported for exactly this reason: `trust: false`
+ * KaTeX cannot be coerced into emitting these values, so the pipeline alone
+ * could not reach the branch under test.
+ */
+describe("renderMarkdown KaTeX style filtering (AC-2)", () => {
+  it("keeps a legal declaration and drops the illegal one beside it", () => {
+    expect(filterKatexStyle("color:red;background:url(https://evil/x)")).toBe(
+      "color:red"
+    );
+    expect(
+      filterKatexStyle("height:1.2em;behavior:url(#x);border-style:solid")
+    ).toBe("height:1.2em;border-style:solid");
+  });
+
+  it.each([
+    "width:expression(alert(1))",
+    "width:var(--x)",
+    "background-color:image-set(\"x\")",
+    "color:attr(data-x)",
+    "border-color:element(#a)",
+    "background-color:rgb(1,2,3)",
+    "text-shadow:0 0 url(x)",
+    "border:1px solid url(#x)"
+  ])("rejects functional notation: %s", (declaration) => {
+    expect(filterKatexStyle(declaration)).toBe("");
+  });
+
+  // Each case asserts the exact surviving text, so a weakened veto that let
+  // part of a payload through would fail instead of passing silently.
+  it.each([
+    ["color:\\72 ed", ""],
+    ["color:red!important", ""],
+    ["color: red ! important", ""],
+    ["color:/*x*/red", ""],
+    ["color:red;;behavior:url(#x)", "color:red"],
+    ["background-color:\\75rl(x)", ""],
+    ["color:'red'", ""],
+    ['color:"red"', ""],
+    ["color:&#114;ed", ""],
+    ["position:absolute", ""],
+    ["position:fixed", ""],
+    ["top:0em;position:sticky", "top:0em"],
+    ["height:100vh", ""],
+    ["width:calc(1em + 1px)", ""],
+    ["-moz-binding:url(x)", ""],
+    ["behavior:url(#default#time2)", ""],
+    ["background:red", ""],
+    ["background-image:none", ""],
+    ["transform:scale(2)", ""],
+    ["left:javascript:alert(1)", ""],
+    ["content:x", ""],
+    // A NUL terminator, a Cyrillic homoglyph, full-width latin, and a
+    // zero-width space: the character allow-list is ASCII-only and excludes
+    // control characters, so none of them reaches a value grammar.
+    ["color:\u0072ed\u0000", ""],
+    ["color:rеd", ""],
+    ["color:ｒed", ""],
+    ["color:red​", ""],
+    // Custom properties and vendor prefixes are not allow-listed properties.
+    ["--x:red", ""],
+    ["-moz-color:red", ""],
+    // A second colon cannot smuggle a second property/value pair into a value.
+    ["color:red:blue", ""],
+    ["position:relative:absolute", ""],
+    ["color::red", ""],
+    // A newline is outside the allow-list, so a declaration cannot be split.
+    ["height:1em\n", ""],
+    // Properties outside the KaTeX set stay rejected even with legal values.
+    ["unicode-bidi:bidi-override", ""],
+    ["direction:rtl", ""],
+    ["font-size:100em", ""]
+  ])("rejects payload %s", (declaration, expected) => {
+    expect(filterKatexStyle(declaration)).toBe(expected);
+  });
+
+  it("accepts only the KaTeX layout grammar per category", () => {
+    expect(filterKatexStyle("position:relative")).toBe("position:relative");
+    expect(filterKatexStyle("margin:0 -0.02em")).toBe("margin:0 -0.02em");
+    expect(filterKatexStyle("border:0.04em solid blue")).toBe(
+      "border:0.04em solid blue"
+    );
+    expect(filterKatexStyle("text-shadow:0.02em 0.01em 0.04px")).toBe(
+      "text-shadow:0.02em 0.01em 0.04px"
+    );
+    expect(filterKatexStyle("color:#a1b2c3")).toBe("color:#a1b2c3");
+    expect(filterKatexStyle("color:#a1b2c3d4")).toBe("color:#a1b2c3d4");
+    expect(filterKatexStyle("color:#12g")).toBe("");
+    expect(filterKatexStyle("border-style:solid dashed")).toBe(
+      "border-style:solid dashed"
+    );
+    expect(filterKatexStyle("border-style:solid;color:transparent")).toBe(
+      "border-style:solid;color:transparent"
+    );
+    expect(filterKatexStyle("height:1em 2em 3em 4em 5em")).toBe("");
+    expect(filterKatexStyle("")).toBe("");
+    expect(filterKatexStyle(";;;")).toBe("");
+    expect(filterKatexStyle("height")).toBe("");
+    expect(filterKatexStyle(":1em")).toBe("");
+  });
+
+  it("keeps the ordinary Markdown lane free of style, MathML, SVG, input, and img", () => {
+    const host = render(
+      [
+        '<span style="color:red">a</span>',
+        '<p style="height:1em">b</p>',
+        "<math><mo>c</mo></math>",
+        '<mo href="javascript:alert(1)">d</mo>',
+        '<svg><path d="M0 0"/></svg>',
+        '<input type="checkbox" checked>',
+        '<img src="https://evil.example/x.png" alt="e">',
+        '<mpadded voffset="3pt">f</mpadded>'
+      ].join("\n\n")
+    );
+
+    expect(host.querySelector("[style]")).toBeNull();
+    expect(host.querySelector("math, mo, mpadded, mphantom")).toBeNull();
+    expect(host.querySelector("svg, path")).toBeNull();
+    expect(host.querySelector("input")).toBeNull();
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector("[href], [src]")).toBeNull();
+    expect(host.innerHTML).not.toContain("javascript:");
+  });
+
+  it("does not leak the KaTeX lane to a following strict render", () => {
+    // A failing formula exercises the KaTeX sanitizer's error path first.
+    const failed = render("$\\notARealCommand{x}$. ");
+    expect(failed.querySelector(".katex-error")).not.toBeNull();
+
+    const strict = render('<span style="color:red">x</span>');
+    expect(strict.querySelector("span")?.getAttribute("style")).toBeNull();
+    expect(strict.querySelector("span")?.textContent).toBe("x");
+  });
+
+  it("never allow-lists a URL-bearing MathML attribute", () => {
+    const host = render(
+      [
+        String.raw`$\href{https://example.com}{x}$`,
+        String.raw`$\includegraphics{https://evil.example/x.svg}$`
+      ].join(" ")
+    );
+    expect(host.querySelector("[href], [src], [alt], [xlink\\:href]")).toBeNull();
+  });
+
+  it("drops URL carriers forced into the KaTeX lane's attribute filter", () => {
+    // `trust: false` KaTeX cannot emit these attributes, so the exclusion
+    // would otherwise be untestable and an accidental addition to
+    // `KATEX_ALLOWED_ATTR` would go unnoticed. `afterSanitizeElements` runs
+    // per node immediately before DOMPurify filters that node's attributes,
+    // so injecting there exercises the real KaTeX allow-list.
+    const inject = (node: Node): void => {
+      const element = node as Element;
+      if (element.nodeType !== 1 || element.tagName.toLowerCase() !== "mo") {
+        return;
+      }
+      element.setAttribute("href", "https://evil.example/x");
+      element.setAttribute("src", "https://evil.example/x");
+      element.setAttribute("alt", "leak");
+      element.setAttribute("xlink:href", "https://evil.example/x");
+      // Control attribute: proves the injection reached the attribute filter
+      // rather than the assertions below passing vacuously.
+      element.setAttribute("mathcolor", "red");
+    };
+
+    DOMPurify.addHook("afterSanitizeElements", inject);
+    let host: HTMLElement;
+    try {
+      host = render("$a+b$. ");
+    } finally {
+      DOMPurify.removeHook("afterSanitizeElements");
+    }
+
+    const operator = host.querySelector("mo");
+    expect(operator).not.toBeNull();
+    expect(operator?.getAttribute("mathcolor")).toBe("red");
+    expect(host.querySelector("[href], [src], [alt]")).toBeNull();
+    expect(operator?.hasAttribute("xlink:href")).toBe(false);
+  });
+});
+
+/**
+ * AC-3: constructs that used to be silently stripped now render as visible,
+ * inert markup — without adding `input`, `img`, or a footnote `href` to the
+ * strict lane.
+ */
+describe("renderMarkdown Markdown fidelity (AC-3)", () => {
+  it("renders task list checkboxes without an input element", () => {
+    const host = render("- [ ] a\n- [x] b");
+
+    expect(host.querySelector("input")).toBeNull();
+    const items = host.querySelectorAll("li.task-item");
+    expect(items).toHaveLength(2);
+    expect(items[0]?.classList.contains("task-item-checked")).toBe(false);
+    expect(items[1]?.classList.contains("task-item-checked")).toBe(true);
+
+    const markers = host.querySelectorAll(".task-marker");
+    expect(markers).toHaveLength(2);
+    expect(markers[0]?.classList.contains("task-marker-checked")).toBe(false);
+    expect(markers[1]?.classList.contains("task-marker-checked")).toBe(true);
+    expect(host.textContent).toContain("a");
+    expect(host.textContent).toContain("b");
+  });
+
+  it("leaves ordinary list items untouched", () => {
+    const host = render("- a\n- b");
+    expect(host.querySelectorAll("li")).toHaveLength(2);
+    expect(host.querySelector("li.task-item")).toBeNull();
+    expect(host.querySelector(".task-marker")).toBeNull();
+  });
+
+  it("keeps sub and sup", () => {
+    const host = render("H<sub>2</sub>O and x<sup>2</sup>");
+    expect(host.querySelector("sub")?.textContent).toBe("2");
+    expect(host.querySelector("sup")?.textContent).toBe("2");
+    expect(host.textContent).toContain("H2O");
+  });
+
+  it("degrades images to a safe link instead of blank output", () => {
+    const host = render("![图](https://example.com/a.png)");
+    expect(host.querySelector("img")).toBeNull();
+    const anchor = host.querySelector("a");
+    expect(anchor?.textContent).toBe("图");
+    expect(anchor?.getAttribute("href")).toBe("https://example.com/a.png");
+    expect(anchor?.getAttribute("rel")).toContain("nofollow");
+    expect(anchor?.getAttribute("target")).toBe("_blank");
+  });
+
+  it("falls back to the URL when the image alt text is empty", () => {
+    const host = render("![](https://example.com/a.png)");
+    expect(host.querySelector("a")?.textContent).toBe(
+      "https://example.com/a.png"
+    );
+  });
+
+  it.each([
+    "![x](javascript:alert(1))",
+    "![x](data:text/html;base64,PHNjcmlwdD4=)",
+    "![x](vbscript:msgbox(1))"
+  ])("never produces a dangerous image link: %s", (source) => {
+    const host = render(source);
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector("a")?.getAttribute("href")).toBeNull();
+    expect(host.innerHTML).not.toMatch(/javascript:|vbscript:|data:text\/html/i);
+  });
+
+  it("renders footnotes as visible text without producing a link", () => {
+    const host = render("正文[^1]\n\n[^1]: 注释内容");
+
+    expect(host.querySelector("a")).toBeNull();
+    expect(host.querySelector("[href]")).toBeNull();
+    const text = host.textContent ?? "";
+    expect(text).toContain("正文");
+    expect(text).toContain("1");
+    expect(text).toContain("注释内容");
+    expect(host.querySelector("sup.footnote-ref")?.textContent).toBe("[1]");
+    expect(host.querySelector(".footnote-def")?.textContent).toContain(
+      "注释内容"
+    );
+  });
+
+  it("keeps ordinary link reference definitions working", () => {
+    const host = render("[文字][ref] and [bare][ref]\n\n[ref]: https://example.com");
+    const anchors = host.querySelectorAll("a");
+    expect(anchors).toHaveLength(2);
+    expect(anchors[0]?.getAttribute("href")).toBe("https://example.com");
+    expect(anchors[0]?.textContent).toBe("文字");
+    expect(host.textContent).not.toContain("https://example.com");
+  });
+
+  it("leaves an unpaired reference as literal text", () => {
+    // R8 pairs references with definitions. `[^…]` is ordinary prose far more
+    // often than it is a footnote, and an unpaired match would both superscript
+    // the text and silently drop its caret.
+    const host = render(
+      "use [^a-z] to match, and array[^2] index\n\ntext[^missing] end"
+    );
+    expect(host.querySelector("sup")).toBeNull();
+    expect(host.querySelector(".footnote-ref")).toBeNull();
+    const text = host.textContent ?? "";
+    expect(text).toContain("[^a-z]");
+    expect(text).toContain("array[^2]");
+    expect(text).toContain("[^missing]");
+  });
+
+  it("keeps an indented footnote definition visible", () => {
+    // Up to three leading spaces is what a link reference definition accepts,
+    // so the footnote tokenizer has to claim the same shape or the note body
+    // is swallowed as a definition and disappears.
+    const host = render("正文[^1]\n\n  [^1]: 缩进注释");
+    expect(host.querySelector("[href]")).toBeNull();
+    expect(host.querySelector(".footnote-def")?.textContent).toContain(
+      "缩进注释"
+    );
+  });
+
+  it("keeps a definition without a reference visible", () => {
+    const host = render("[^1]: 孤立注释");
+    expect(host.querySelector("[href]")).toBeNull();
+    expect(host.querySelector(".footnote-def")?.textContent).toContain(
+      "孤立注释"
+    );
+  });
+
+  it("does not swallow bracket text that is not a footnote", () => {
+    const host = render("literal [x] and [not^a] stay");
+    expect(host.querySelector(".footnote-ref")).toBeNull();
+    expect(host.textContent).toContain("literal [x] and [not^a] stay");
+  });
+
+  it("keeps details and summary structure instead of unwrapping them", () => {
+    const host = render("<details><summary>展开</summary>内容</details>");
+    const details = host.querySelector("details");
+    expect(details).not.toBeNull();
+    expect(details?.querySelector("summary")?.textContent).toBe("展开");
+    expect(details?.textContent).toContain("内容");
+  });
+
+  it("keeps details inert: no scripts, handlers, or URL carriers survive", () => {
+    const host = render(
+      '<details open ontoggle="alert(1)"><summary onclick="alert(2)">s</summary><script>alert(3)</script><a href="javascript:alert(4)">l</a></details>'
+    );
+    expect(host.querySelector("details")?.hasAttribute("open")).toBe(true);
+    expect(host.querySelector("details")?.getAttribute("ontoggle")).toBeNull();
+    expect(host.querySelector("summary")?.getAttribute("onclick")).toBeNull();
+    expect(host.querySelector("script")).toBeNull();
+    expect(host.querySelector("a")?.getAttribute("href")).toBeNull();
+  });
+
+  it("keeps a long footnote label paired instead of losing the note body", () => {
+    // A definition this extension declines falls through to Marked's `def`
+    // tokenizer, which discards the body silently — the very failure R8 exists
+    // to prevent. The label bound must be generous enough that ordinary text
+    // never crosses it.
+    const label = "a".repeat(200);
+    const host = render(`正文[^${label}]\n\n[^${label}]: 长标签注释`);
+
+    expect(host.querySelector("[href]")).toBeNull();
+    expect(host.querySelector("sup.footnote-ref")?.textContent).toBe(
+      `[${label}]`
+    );
+    expect(host.querySelector(".footnote-def")?.textContent).toContain(
+      "长标签注释"
+    );
+  });
+
+  it("shows a literal ampersand in image alt text exactly once", () => {
+    // `&amp;` in Markdown source already means a literal `&`; re-encoding it
+    // would surface `&amp;` to the reader.
+    const host = render(
+      "![a &amp; b](https://example.com/a.png) ![c & d](https://example.com/b.png)"
+    );
+    const anchors = host.querySelectorAll("a");
+    expect(anchors[0]?.textContent).toBe("a & b");
+    expect(anchors[1]?.textContent).toBe("c & d");
+    expect(host.innerHTML).not.toContain("&amp;amp;");
+  });
+
+  it("still escapes markup characters in image alt text", () => {
+    const host = render(
+      '![<script>alert(1)</script> "x" \'y\'](https://example.com/a.png)'
+    );
+    expect(host.querySelector("script")).toBeNull();
+    expect(host.querySelector("a")?.textContent).toContain("<script>");
+    expect(host.querySelector("a")?.getAttribute("href")).toBe(
+      "https://example.com/a.png"
+    );
+  });
+
+  it("keeps a query-string ampersand intact in a degraded image link", () => {
+    const host = render("![x](https://example.com/a?b=1&c=2)");
+    expect(host.querySelector("a")?.getAttribute("href")).toBe(
+      "https://example.com/a?b=1&c=2"
+    );
   });
 });
