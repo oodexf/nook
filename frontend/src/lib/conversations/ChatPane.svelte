@@ -10,6 +10,7 @@
   import TrashIcon from "../components/TrashIcon.svelte";
   import StreamingTurn from "../generation/StreamingTurn.svelte";
   import type { GenerationStore } from "../generation/generation-store.svelte";
+  import { formatModelLabel } from "../models/model-label";
   import ComposerModelSelector from "../models/ComposerModelSelector.svelte";
   import Composer from "./Composer.svelte";
   import {
@@ -213,6 +214,19 @@
     store.detailStatus === "idle" && !streamVisible
   );
 
+  // --- Locked-model label (08-15 header refresh) ----------------------
+  // The header used to print the raw provider ID inside a bordered pill,
+  // which read as a tag of configuration rather than as the name of the
+  // model the conversation is talking to. It now shows the derived display
+  // name as a quiet caption after a hairline rule. The exact ID stays one
+  // hover away (and the model-unavailable banner below still prints it
+  // verbatim), because the ID — not this label — is what the server
+  // locked.
+  const lockedModel = $derived.by(() => {
+    const id = store.current?.conversation.model ?? "";
+    return { id, name: formatModelLabel(id) };
+  });
+
   const lockedModelRemoved = $derived(
     store.detailStatus === "ready" &&
       store.current !== null &&
@@ -351,7 +365,7 @@
         bind:this={restoreButton}
         onclick={onRestoreSidebar}
       >
-        <SidebarToggleIcon size={20} direction="expand" />
+        <SidebarToggleIcon size={18} direction="expand" />
       </button>
     {/if}
     <button
@@ -361,7 +375,7 @@
       bind:this={menuButton}
       onclick={onOpenDrawer}
     >
-      <MenuIcon size={22} />
+      <MenuIcon size={20} />
     </button>
 
     {#if store.detailStatus === "ready" && store.current}
@@ -390,7 +404,9 @@
       {:else}
         <div class="title-group">
           <h1 class="title">{store.current.conversation.title}</h1>
-          <span class="locked-model">{store.current.conversation.model}</span>
+          <span class="locked-model" title={`模型 ${lockedModel.id}`}>
+            {lockedModel.name}
+          </span>
         </div>
         <div class="header-actions">
           <button
@@ -400,7 +416,7 @@
             bind:this={renameButton}
             onclick={() => void startRename()}
           >
-            <PencilIcon size={18} />
+            <PencilIcon size={16} />
           </button>
           <button
             type="button"
@@ -408,7 +424,7 @@
             aria-label="删除对话"
             onclick={openDelete}
           >
-            <TrashIcon size={18} />
+            <TrashIcon size={16} />
           </button>
         </div>
       {/if}
@@ -544,12 +560,14 @@
     background: var(--bg);
   }
 
+  /* Same 48px bar and compact control scale as the sidebar header, so the
+     two columns meet on one line instead of stepping. */
   .pane-header {
     display: flex;
-    min-height: 60px;
+    min-height: 48px;
     align-items: center;
-    gap: var(--space-3);
-    padding: 0 var(--space-4);
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
     border-bottom: 1px solid var(--border);
     background: var(--surface);
   }
@@ -557,12 +575,12 @@
   .icon-button {
     display: inline-flex;
     flex-shrink: 0;
-    width: var(--touch-target);
-    height: var(--touch-target);
+    width: var(--nav-icon-button);
+    height: var(--nav-icon-button);
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: 8px;
     color: var(--muted);
     background: transparent;
     transition:
@@ -596,30 +614,47 @@
     display: flex;
     min-width: 0;
     flex: 1;
-    align-items: baseline;
-    gap: var(--space-3);
+    align-items: center;
+    gap: var(--space-2);
   }
 
   .title {
     overflow: hidden;
     margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
+    font-size: 0.95rem;
+    font-weight: 650;
     letter-spacing: -0.01em;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  /* The locked model reads as a caption of the title, not as a tag: a
+     hairline rule separates the two and the label stays quiet. The title
+     keeps the room — this label is the first thing to give up width (and
+     then to ellipsize) when the header gets tight. */
   .locked-model {
+    /* A block-level flex item (not inline-flex): the ellipsis only engages
+       on a block container. The floor keeps it from shrinking down to a
+       bare rule with no text beside it. */
     overflow: hidden;
-    flex-shrink: 1;
-    padding: 1px var(--space-2);
-    border: 1px solid var(--border);
-    border-radius: 999px;
+    min-width: 4ch;
+    flex-shrink: 1000;
+    padding-left: var(--space-2);
+    border-left: 1px solid var(--border);
     color: var(--muted);
-    font-size: 0.72rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.01em;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Narrow headers carry the drawer button, the title and two actions;
+     there is no room left for a caption that would only ellipsize. Nothing
+     is lost — every assistant message names the model it answered with. */
+  @media (max-width: 640px) {
+    .locked-model {
+      display: none;
+    }
   }
 
   .header-actions {
@@ -660,13 +695,13 @@
   .rename-form input {
     min-width: 0;
     flex: 1;
-    min-height: var(--touch-target);
-    padding: 0 var(--space-3);
+    min-height: var(--nav-row-height);
+    padding: 0 var(--space-2);
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
+    border-radius: 8px;
     color: var(--text);
     background: var(--surface);
-    font-size: 0.95rem;
+    font-size: 0.875rem;
   }
 
   .rename-form input:focus {
@@ -675,13 +710,13 @@
 
   .text-action {
     flex-shrink: 0;
-    min-height: var(--touch-target);
+    min-height: var(--nav-row-height);
     padding: 0 var(--space-3);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: 8px;
     color: var(--text);
     background: var(--surface);
-    font-size: 0.85rem;
+    font-size: 0.8125rem;
     font-weight: 650;
     transition:
       background-color var(--motion-fast),
