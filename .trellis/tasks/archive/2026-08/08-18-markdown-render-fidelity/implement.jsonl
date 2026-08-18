@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "§Security Gate 直接约束本任务:列出了 markdown 安全矩阵必须覆盖的载荷类型,并明令『绝不为让公式渲染而放宽普通 Markdown 的 style / SVG / URL 权限』。放宽 KaTeX 泳道样式白名单前必须先读这条边界,且 lint gate 视 svelte-check 警告为失败。"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "『Frontend Invariants』里写死了 Markdown 净化与双泳道 provenance 的不变量措辞,本任务改动后需要据此判断哪些描述必须在 Phase 3.3 同步更新。"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "新增的任务列表复选框、脚注角标样式要落在 MarkdownContent.svelte 里,受该指南约束:纯 CSS + global.css token、不硬编码颜色、选中态不能只靠颜色区分、reduced-motion 降级。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "本次要替换 KATEX_STYLE_PROPERTIES / KATEX_NUMERIC_STYLE_VALUE 这两个既有常量,并新增多张记号文法表;按『修改任何常量前先搜索』的规则确认没有其它引用点,也避免把 escapeHtml 等既有工具重复实现一遍。"}
