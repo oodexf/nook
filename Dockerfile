@@ -3,17 +3,21 @@ WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run check && npm run lint && npm run test && npm run build
+RUN npm run build
 
 FROM rust:1.97-bookworm AS rust-build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ crates/
 COPY --from=frontend-build /build/frontend/dist frontend/dist/
-RUN cargo test --workspace \
-    && cargo build --locked --workspace --release
+RUN cargo build --locked --workspace --release
 
 FROM debian:bookworm-slim AS runtime
+LABEL org.opencontainers.image.title="栖语 NooK" \
+      org.opencontainers.image.description="Lightweight, single-instance, self-hosted AI chat service (Rust/Axum + Svelte, SQLite)." \
+      org.opencontainers.image.source="https://github.com/oodexf/nook" \
+      org.opencontainers.image.url="https://github.com/oodexf/nook" \
+      org.opencontainers.image.licenses="MIT"
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
@@ -29,4 +33,3 @@ EXPOSE 8080
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/app/chat-server", "healthcheck"]
 ENTRYPOINT ["/app/chat-server"]
-

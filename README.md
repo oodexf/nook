@@ -18,13 +18,52 @@ are stored in SQLite under `/data`, and provider credentials remain server-side.
 - liveness/readiness probes, non-root container, online SQLite backup, and
   structured secret-safe logs.
 
-## Configuration
+## Quick start
 
-Copy `.env.example` to `.env` and set all required values:
+You need Docker and nothing else — no source checkout, no Node, no Rust.
 
 ```bash
-cp .env.example .env
+mkdir nook && cd nook
+curl -O https://raw.githubusercontent.com/oodexf/nook/v0.1.0/compose.yaml
+curl -o .env https://raw.githubusercontent.com/oodexf/nook/v0.1.0/.env.example
 ```
+
+Edit `.env` and set at least these five values; see [Configuration](#configuration)
+for the complete reference:
+
+- `APP_ACCESS_TOKEN` — instance login token, at least 32 random bytes
+- `APP_ORIGIN` — the exact external origin you will open in the browser
+- `AI_BASE_URL` — your OpenAI-compatible provider endpoint
+- `AI_API_KEY` — the provider credential
+- `AI_DEFAULT_MODEL` — a model id that provider's `/v1/models` returns
+
+Then start it:
+
+```bash
+docker compose up -d
+curl --fail http://127.0.0.1:8080/api/v1/health/live
+curl --fail http://127.0.0.1:8080/api/v1/health/ready
+```
+
+The image is published at `ghcr.io/oodexf/nook` for `linux/amd64` and
+`linux/arm64`. The runtime uses UID/GID `10001`, a read-only root filesystem,
+and one named volume mounted at `/data`.
+
+The server reads configuration from its process environment at startup and never
+reads `.env` itself — Compose injects the file through `env_file`. A missing or
+invalid value stops the container with exit code 2, so check
+`docker compose logs chat` if it will not start.
+
+Both health probes answer over plain HTTP, but signing in does not: the session
+cookie is `Secure` by default, so put a TLS reverse proxy in front and set
+`APP_ORIGIN` to that public HTTPS origin. See
+[Reverse proxy and streaming](#reverse-proxy-and-streaming). For a loopback-only
+trial you can instead set `APP_COOKIE_SECURE=false`.
+
+## Configuration
+
+All values are supplied through the process environment; Compose loads them from
+`.env`. Required values have no default and stop startup when absent.
 
 | Variable | Required | Purpose |
 |---|---:|---|
@@ -54,18 +93,23 @@ openssl rand -base64 32
 Production must use HTTPS so the default Secure cookie can be sent. The Compose
 example binds only to localhost; place a TLS reverse proxy in front of it.
 
-## Run with Docker Compose
+## Build from source
+
+Only needed to run your own build instead of the published image.
+`compose.dev.yaml` is an override that swaps the image for a local build; the
+runtime configuration is inherited from `compose.yaml`, so both paths run the
+same way.
 
 ```bash
-docker compose up --build -d
-curl --fail http://127.0.0.1:8080/api/v1/health/live
-curl --fail http://127.0.0.1:8080/api/v1/health/ready
+git clone https://github.com/oodexf/nook.git && cd nook
+cp .env.example .env    # then edit it
+docker compose -f compose.yaml -f compose.dev.yaml up --build -d
 ```
 
-The runtime uses UID/GID `10001`, a read-only root filesystem, and one named
-volume mounted at `/data`.
+`make docker-dev` is the same thing wrapped in the full quality gate: it runs
+`make check` and `make test` first, then builds the image and starts it.
 
-### Reverse proxy and streaming
+## Reverse proxy and streaming
 
 Forward the original `Host` and scheme, and disable response buffering for SSE.
 For Nginx:
@@ -129,8 +173,10 @@ Adjust the volume and backup names for your deployment.
 ## Upgrade and rollback
 
 1. Create and integrity-check an online backup.
-2. Pull/build an immutable image tag; never rely on `latest` for rollback.
-3. Stop the old container and start the new tag against the existing `/data`.
+2. Pin an immutable image tag in `compose.yaml`; never rely on `latest` for
+   rollback.
+3. `docker compose up -d` pulls the new tag and restarts against the existing
+   `/data`.
 4. Confirm readiness, login, model discovery, historical chat, and one streamed
    response.
 5. If startup fails before migration, restore the previous image tag.
@@ -148,8 +194,10 @@ crates/storage    SQLite schema, migrations, online backup
 crates/server     Axum HTTP/SSE surface, auth, health probes
 frontend/         Svelte browser client (Vite)
 scripts/          local development helpers
+.github/workflows CI quality gate and tagged multi-arch release pipeline
 Dockerfile        single-image build: frontend bundle + Rust server
-compose.yaml      single-instance deployment example
+compose.yaml      single-instance deployment, pulls the published image
+compose.dev.yaml  developer override that builds the image locally
 ```
 
 ## Local development and quality checks
@@ -188,5 +236,5 @@ and sanitized Markdown rendering.
 
 ## License
 
-MIT, as declared in the workspace `Cargo.toml`. Add a `LICENSE` file with your
-copyright line before distributing the source.
+MIT. See [LICENSE](LICENSE); the same identifier is declared in the workspace
+`Cargo.toml`.

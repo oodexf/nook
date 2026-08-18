@@ -1,4 +1,4 @@
-.PHONY: build check check-backend check-frontend test frontend-install frontend-build docker-build
+.PHONY: build check check-backend check-frontend test frontend-install frontend-build docker-build docker-dev
 
 frontend-install:
 	npm --prefix frontend ci
@@ -23,5 +23,10 @@ test:
 build: frontend-build
 	cargo build --workspace --release
 
-docker-build:
+# The Dockerfile only builds artifacts; the quality gate runs here so a local
+# image build keeps the same coverage the release workflow enforces in CI.
+docker-build: check test
 	docker build -t nook:local .
+
+docker-dev: docker-build
+	docker compose -f compose.yaml -f compose.dev.yaml up -d
