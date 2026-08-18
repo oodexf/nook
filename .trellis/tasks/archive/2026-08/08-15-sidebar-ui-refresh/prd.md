@@ -109,8 +109,8 @@
 - [x] AC8 侧边栏样式中无硬编码颜色字面量（遮罩渐变用 `currentColor`）；`--accent-soft` 在 `:root` 与 `:root[data-theme="dark"]` 均有定义（R6）
 - [x] AC9 light / dark、桌面 / 移动抽屉四种组合下浏览器实测视觉完整，收起与展开动画正常（R7）
 - [x] AC10 `AppShell.test.ts` 锁定的 DOM 契约保持，测试通过；两处断言按 design.md §6 有意反转，另有一处 `:scope >` 选择器随 `.row-actions` 包装层调整（见 design.md §8）（Background）
-- [~] AC11 `prefers-reduced-motion: reduce` 下无过渡动画残留（R8）—— 由 `global.css` 既有的全局 `@media (prefers-reduced-motion: reduce)` 规则（`transition-duration: 0.01ms !important` 作用于 `*`）覆盖；本次新增的均为普通 CSS transition，未单独在浏览器中模拟该媒体特性验证
-- [x] AC12 `npm run lint`、`npm run check`、`npm run test`（392 passed）、`npm run build` 全部通过（frontend 目录）
+- [x] AC11 `prefers-reduced-motion: reduce` 下无过渡动画残留（R8）—— 浏览器实测：把两条 `@media (prefers-reduced-motion: reduce)` 的条件临时改写为 `all`，读取计算样式确认 `.shell` / `.sidebar-static` / `.nav-entry` / `.row-actions` 的 `transition-duration` 全部塌缩为 `1e-05s`。发现并修复一处残留：`global.css` 的全局重置只归零 `transition-duration`，不归零 `transition-delay`，而 `AppShell.svelte` 的 `.sidebar-static` 用 `transition: visibility 0s linear 160ms` 靠**延迟**等待宽度动画播完；reduced-motion 下宽度动画不播，该列仍会在 tab order 中滞留 160ms。已在 `AppShell.svelte` 增补局部 `transition-delay: 0s` 覆盖，实测该规则关闭时延迟为 `0.16s`、开启时为 `0s`
+- [x] AC12 `npm run lint`、`npm run check`（555 files / 0 errors / 0 warnings）、`npm run test`（474 passed，含 08-18 任务并入的 markdown 用例）、`npm run build` 全部通过（frontend 目录）
 
 ## Out of Scope
 

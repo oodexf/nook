@@ -172,8 +172,8 @@ export function buildSidebarSections(
 ```css
 --title-fade-mask: linear-gradient(
   to right,
-  currentColor calc(100% - 92px),
-  transparent calc(100% - 48px)
+  currentColor calc(100% - 98px),
+  transparent calc(100% - 54px)
 );
 ```
 
@@ -182,3 +182,23 @@ export function buildSidebarSections(
 **8.3 多一处测试选择器调整(§6 未预见)**
 
 `AppShell.test.ts:786` 的 `treats the sidebar item row as one card with two independent controls` 用 `:scope > button[...]` 断言两个动作按钮是 `.item-row` 的直接子元素。新增的 `.row-actions` 定位包装层打破了这一点,选择器改为 `:scope > .row-actions > button[...]`,并补了一条 `expect(item?.querySelector("button")).toBeNull()`——用例真正要守的是"没有嵌套的交互元素",这条断言比"必须是直接子元素"更贴近本意,也更不易被无关的结构调整误伤。
+
+**8.4 计划外夹带改动(收尾复核发现,一并接受)**
+
+收尾质量复核逐文件比对 `git diff HEAD` 后,发现工作区里有五组改动不属于本设计记录的任何一条。它们均已通过四条门禁、与侧边栏改动共用同一份工作区,拆分重做的代价高于收益,因此**接受并在此备案**——目的是让记录与事实一致,而不是追认它们本就在范围内。
+
+| # | 夹带内容 | 与计划的冲突 | 处置 |
+|---|---|---|---|
+| 1 | `ChatPane.svelte` 头部重做(`min-height` 60→48、图标 20/22/18→18/20/16、`.locked-model` 由胶囊改为细分隔线说明文字、重命名表单缩放),外加新文件 `lib/models/model-label.ts` + 测试 | prd.md **Out of Scope** 明写「`ChatPane`、`Composer`、`SettingsDialog` 的视觉改动」不在范围 | 接受。它也是 `AppShell.test.ts` 里 `expectHeaderModel` 那组断言变更的唯一来源(§6 未预见)。模型精确 ID 仍保留在 `title` 与 `.model-unavailable` 中,信息未丢失 |
+| 2 | `global.css` 新增 `--nav-row-height: 36px` / `--nav-icon-button: 32px`,并在 `@media (any-pointer: coarse)` 下恢复为 `var(--touch-target)` | §5 规定导航行与列表行用 `min-height: var(--touch-target)` | 接受。44×44 是**触摸**下限,粗指针路径仍给足 44px,细指针路径收紧到 36px 是紧凑尺度的必要条件 |
+| 3 | `AppShell.svelte` 栅格宽度 300px → 272px | §1 明写「`AppShell.svelte` 不改:栅格宽度(300px)…全部保持」 | 接受。行与控件不再是触摸尺寸后,300px 右侧留白过多,与紧凑尺度是同一决策的两半 |
+| 4 | 新文件 `lib/test-utils/test-provider.ts`:从仓库根 `.env` 的 `AI_DEFAULT_MODEL` 派生 `TEST_MODEL_ID`,替换六个测试文件里的硬编码模型 ID | 与侧边栏无关 | **接受,已单独收口**。原实现在模块导入期 `readFileSync` 逐级向上找 `.env`,使单元测试夹具值在"本机有 `.env`"与"CI 无 `.env`"之间不同 —— 今天不失败(该值是不透明字符串),但一旦有断言依赖该值的形态(如 `lib/models/model-label.ts` 的展示名派生)就会本机绿、CI 红。现已改为固定常量 `"test-model"`(与 `crates/server/src/config.rs` 的占位一致),删去 `.env` 读取与 `node:fs` / `node:path` 依赖;针对真实 provider 模型的验证归集成测试,不放 jsdom 单元测试 |
+| 5 | `vite.config.ts` 的 `VITE_BACKEND_URL` 代理,配合未跟踪的 `scripts/dev.sh` | 与侧边栏无关 | 接受。纯本地开发工具,无产物影响 |
+
+**8.5 `prefers-reduced-motion` 残留(AC11 收尾实测发现并修复)**
+
+`global.css` 的全局 reduced-motion 重置只归零 `transition-duration`,不归零 `transition-delay`。而 `AppShell.svelte` 的 `.shell.sidebar-collapsed .sidebar-static` 用 `transition: visibility 0s linear 160ms` —— 靠**延迟**而非时长来等待宽度动画播完。reduced-motion 下宽度动画不播,该列却仍会在 tab order 与无障碍树中滞留 160ms。
+
+修法是在 `AppShell.svelte` 局部补一条 `@media (prefers-reduced-motion: reduce) { transition-delay: 0s; }`,而不是往 `global.css` 的全局重置里加 `transition-delay: 0s !important`:全仓库仅此一处带延迟的过渡(`grep` 实证),而这条延迟的存在理由正是"等宽度动画",动画不播时延迟自然应为零;全局归零则会连带禁止将来任何有意的错峰延迟。
+
+实测:该规则关闭时计算值为 `0.16s`,开启时为 `0s`。
