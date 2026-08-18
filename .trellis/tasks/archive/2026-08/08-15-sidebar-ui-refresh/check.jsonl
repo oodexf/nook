@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验收门槛来源:lint / svelte-check / 单测 / 生产构建 / 浏览器与无障碍检查的完整清单,AC12 与 AC9 直接对应。"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "复核硬编码颜色、aria-label 缺失、触摸目标不足、prefers-reduced-motion 未降级这四类最可能在样式重写中被引入的违规。"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "复核 buildSidebarSections 是否保持纯函数(now 由参数注入而非内部取时钟),以及 store 契约变更是否只影响唯一调用方。"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "分档依赖 updatedAt 的语义与服务端 ORDER BY updated_at DESC 的排序前提,需跨层确认改动没有隐含对后端排序的新假设。"}

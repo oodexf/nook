@@ -140,6 +140,18 @@ Adjust the volume and backup names for your deployment.
 SQLite must be on local persistent storage, not NFS/SMB. Multiple replicas
 sharing the database are unsupported.
 
+## Project layout
+
+```
+crates/core       domain types, provider client, streaming orchestration
+crates/storage    SQLite schema, migrations, online backup
+crates/server     Axum HTTP/SSE surface, auth, health probes
+frontend/         Svelte browser client (Vite)
+scripts/          local development helpers
+Dockerfile        single-image build: frontend bundle + Rust server
+compose.yaml      single-instance deployment example
+```
+
 ## Local development and quality checks
 
 Prerequisites: Node.js 24 and Rust 1.97.1.
@@ -173,3 +185,8 @@ Automated tests cover contracts and Svelte components. Before a release, also
 manually verify current Safari and iOS Safari, including login, software-keyboard
 composer visibility, IME Enter behavior, streaming, stop/retry, rename/delete,
 and sanitized Markdown rendering.
+
+## License
+
+MIT, as declared in the workspace `Cargo.toml`. Add a `LICENSE` file with your
+copyright line before distributing the source.

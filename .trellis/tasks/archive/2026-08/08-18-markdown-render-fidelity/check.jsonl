@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验收的主依据:安全矩阵覆盖度、Phase A 四条门禁命令(check / lint / test / build)、以及『不得放宽普通 Markdown style / SVG / URL 权限』这条硬红线是否被违反。"}
-{"file": ".trellis/spec/frontend/index.md", "reason": "核对改动后的实际行为与『Frontend Invariants』中 Markdown 净化不变量是否一致,不一致时判断该改代码还是该更新 spec。"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "复核 MarkdownContent.svelte 新增样式是否走 token、是否满足对比度与不依赖纯颜色区分选中态的可访问性要求。"}
-{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "render.ts 的净化配置、marked 渲染器覆写、MarkdownContent 样式三层需要对齐(例如渲染器发出的 class 必须同时在白名单与样式表中存在),用该指南检查跨层遗漏。"}

@@ -1,3 +1,0 @@
-{"file":".trellis/spec/frontend/index.md","reason":"Frontend invariants include the isolated Markdown/KaTeX rendering boundary."}
-{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Defines the single sanitized Markdown HTML boundary and formula provenance requirements."}
-{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines required formula security regressions and frontend validation commands."}

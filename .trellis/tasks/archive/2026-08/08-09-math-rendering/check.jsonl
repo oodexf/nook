@@ -1,2 +1,0 @@
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "复核公式渲染未新增 HTML 注入点且移动端与可访问性符合规范"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "复核 XSS 矩阵、资源体积、Safari/iOS 与完整前端质量门"}

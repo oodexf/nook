@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "本任务几乎全部是 Svelte 组件与样式改动:纯 CSS + token、内联 SVG 图标、icon-only 按钮的 aria-label、44px 触摸目标、装饰元素的 a11y 处理都由这份指南约束,且 lint gate 视 svelte-check 警告为失败。"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "时间分档要改 conversation-store 的导出契约(groupConversations → buildSidebarSections),需要遵守该文件对 store 边界与派生状态的约定。"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "确认改动落在既有模块位置,不新建目录;若需新增图标组件,命名与放置遵循此文件。"}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "侧边栏样式重写容易复制出与 global.css 现有 .copy-button / icon-button 重复的一套 chrome;需要先判断可复用项再落笔。"}

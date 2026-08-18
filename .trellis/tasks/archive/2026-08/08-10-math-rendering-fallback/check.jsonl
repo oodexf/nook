@@ -1,3 +1,0 @@
-{"file":".trellis/spec/frontend/index.md","reason":"Verify the fix preserves frontend rendering invariants."}
-{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review the implementation against the single sanitized Markdown boundary."}
-{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run and assess the required security and frontend quality gates."}
