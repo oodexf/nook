@@ -81,12 +81,58 @@ Existing conversations show a non-editable model label.
 ## Accessibility
 
 - All actions are keyboard reachable with visible focus.
-- Touch targets are at least 44×44 CSS pixels.
+- Touch targets are at least 44×44 CSS pixels **on coarse pointers**. 44px is a
+  finger minimum, not a universal one: a fine-pointer layout may use a tighter
+  scale, provided the coarse path restores the full target. Express it with the
+  media query, never by dropping the guarantee globally (08-15 sidebar):
+
+  ```css
+  :root { --nav-row-height: 36px; --nav-icon-button: 32px; }
+
+  @media (any-pointer: coarse) {
+    :root { --nav-row-height: var(--touch-target); --nav-icon-button: var(--touch-target); }
+  }
+  ```
+
+  For a control that must stay visually compact even on touch, expand the hit
+  area with a transparent `::after` overlay instead of growing the box.
 - Normal text contrast is at least 4.5:1.
 - Dialogs trap focus, have a labelled title, and restore focus on close.
 - Streaming content does not announce every token to assistive technology.
   Announce generation state changes at a controlled cadence.
-- Respect `prefers-reduced-motion`.
+- Respect `prefers-reduced-motion`. The global reset in `global.css` zeroes
+  `transition-duration` / `animation-duration` on `*`, but **not**
+  `transition-delay`. Any rule that uses a delay to wait for another animation
+  must therefore cancel its own delay, or the delay outlives the motion it was
+  waiting for (08-15: the collapsed sidebar column kept `visibility: visible`
+  — and stayed in the tab order — for 160ms after a collapse that no longer
+  animated):
+
+  ```css
+  /* The delay exists only to let the width transition play. */
+  .shell.sidebar-collapsed .sidebar-static {
+    transition: visibility 0s linear 160ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shell.sidebar-collapsed .sidebar-static { transition-delay: 0s; }
+  }
+  ```
+
+  Keep the override local rather than adding `transition-delay: 0s !important`
+  to the global reset: only a delay that exists to wait for motion should
+  collapse, and a global rule would also forbid deliberate staggering later.
+
+  Verify by rewriting the media condition in the CSSOM and reading computed
+  styles — `matchMedia` cannot be forced from page script:
+
+  ```js
+  for (const sheet of document.styleSheets)
+    for (const rule of sheet.cssRules)
+      if (rule.conditionText?.includes("prefers-reduced-motion"))
+        rule.media.mediaText = "all";
+  getComputedStyle(el).transitionDelay; // expect "0s"
+  ```
 - Desktop Enter sends and Shift+Enter creates a newline.
 - IME composition suppresses send-on-Enter.
 - Mobile preserves the composer when the software keyboard opens.
@@ -173,6 +219,8 @@ The auth stage is deliberately quiet and shares the app's design language
 - storing auth tokens in component or localStorage state;
 - using toast-only errors for a failed message;
 - allowing the model selector to change a non-empty conversation;
+- relying on the global `prefers-reduced-motion` reset to cancel a
+  `transition-delay` — it only zeroes durations (see Accessibility);
 - putting `aria-hidden` on a heading element — breaks the lint/build gate; use a
   non-heading element for decorative typography.
 
