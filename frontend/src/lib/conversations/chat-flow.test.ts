@@ -7,6 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { createGenerationStore } from "../generation/generation-store.svelte";
 import { createConversationStore } from "./conversation-store.svelte";
 
@@ -449,7 +451,7 @@ describe("chat flow integration", () => {
     const send = generation.send({
       conversationId: null,
       content: "你好",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await vi.waitFor(() => expect(generation.phase).toBe("streaming"));
@@ -469,7 +471,7 @@ describe("chat flow integration", () => {
     const { streamNewConversationMessage } = await import("../api/chat");
     await streamNewConversationMessage({
       content: "你好",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       clientMessageId: replayKey as string,
       csrfToken: "csrf",
       signal: new AbortController().signal,
@@ -489,7 +491,7 @@ describe("chat flow integration", () => {
     const first = generation.send({
       conversationId: null,
       content: "第 1 问",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await vi.waitFor(() => expect(generation.phase).toBe("streaming"));
@@ -534,7 +536,7 @@ describe("chat flow integration", () => {
     const first = generation.send({
       conversationId: null,
       content: "A 的问题",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await vi.waitFor(() => expect(generation.phase).toBe("streaming"));
@@ -551,7 +553,7 @@ describe("chat flow integration", () => {
       const { streamNewConversationMessage } = await import("../api/chat");
       await streamNewConversationMessage({
         content: "B 的问题",
-        model: "test-model",
+        model: TEST_MODEL_ID,
         clientMessageId: "01JCLIENTB00000000000000000",
         csrfToken: "csrf",
         signal: new AbortController().signal,
@@ -604,7 +606,7 @@ describe("chat flow integration", () => {
     const send = generation.send({
       conversationId: null,
       content: "长回答",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await vi.waitFor(() => expect(generation.phase).toBe("streaming"));
@@ -653,7 +655,7 @@ describe("chat flow integration", () => {
     const send = generation.send({
       conversationId: null,
       content: "问题",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await vi.waitFor(() => expect(generation.phase).toBe("streaming"));

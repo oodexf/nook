@@ -2,6 +2,8 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import type { ChatMessage } from "../api/conversations";
 import MessageList from "./MessageList.svelte";
 
@@ -63,7 +65,7 @@ describe("MessageList", () => {
     const { container, destroy } = mountList({
       messages: [
         message({ role: "user", content: "问题" }),
-        message({ role: "assistant", content: "回答", model: "test-model" })
+        message({ role: "assistant", content: "回答", model: TEST_MODEL_ID })
       ]
     });
 

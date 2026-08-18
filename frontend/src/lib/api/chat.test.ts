@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { ApiError, onSessionExpired } from "./client";
 import {
   cancelGeneration,
@@ -37,7 +39,7 @@ function metaBlock(): string {
       user_message_id: "01J000000000000000000000U1",
       assistant_message_id: "01J000000000000000000000A1",
       generation_id: "01J000000000000000000000G1",
-      model: "test-model"
+      model: TEST_MODEL_ID
     }) +
     "\n\n"
   );
@@ -88,7 +90,7 @@ describe("chat streaming API", () => {
     await streamNewConversationMessage({
       ...baseOptions((event) => events.push(event)),
       content: "你好",
-      model: "test-model"
+      model: TEST_MODEL_ID
     });
 
     expect(events.map((event) => event.kind)).toEqual(["meta", "done"]);
@@ -103,7 +105,7 @@ describe("chat streaming API", () => {
     expect(JSON.parse(init.body as string)).toEqual({
       client_message_id: "01JCLIENTMESSAGEID0000000000",
       content: "你好",
-      model: "test-model"
+      model: TEST_MODEL_ID
     });
   });
 

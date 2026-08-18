@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import {
   SseProtocolError,
   createChatEventDecoder,
@@ -20,7 +22,7 @@ function metaBlock(overrides: Record<string, unknown> = {}): string {
     user_message_id: "01J000000000000000000000U1",
     assistant_message_id: "01J000000000000000000000A1",
     generation_id: "01J000000000000000000000G1",
-    model: "test-model",
+    model: TEST_MODEL_ID,
     ...overrides
   };
   return `event: meta\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -61,7 +63,7 @@ describe("chat SSE decoder", () => {
     expect(meta.userMessageId).toBe("01J000000000000000000000U1");
     expect(meta.assistantMessageId).toBe("01J000000000000000000000A1");
     expect(meta.generationId).toBe("01J000000000000000000000G1");
-    expect(meta.model).toBe("test-model");
+    expect(meta.model).toBe(TEST_MODEL_ID);
     const done = events[3];
     if (done.kind !== "done") throw new Error("expected done");
     expect(done.finishReason).toBe("stop");

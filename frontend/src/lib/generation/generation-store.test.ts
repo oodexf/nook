@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { createGenerationStore } from "./generation-store.svelte";
 
 const encoder = new TextEncoder();
@@ -19,7 +21,7 @@ function metaBlock(overrides: Record<string, unknown> = {}): string {
       user_message_id: USER_ID,
       assistant_message_id: ASSISTANT_ID,
       generation_id: GENERATION_ID,
-      model: "test-model",
+      model: TEST_MODEL_ID,
       ...overrides
     }) +
     "\n\n"
@@ -108,7 +110,7 @@ describe("generation store", () => {
     const send = store.send({
       conversationId: null,
       content: "  你好  ",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     expect(store.phase).toBe("connecting");
@@ -129,7 +131,7 @@ describe("generation store", () => {
     const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body.content).toBe("你好");
-    expect(body.model).toBe("test-model");
+    expect(body.model).toBe(TEST_MODEL_ID);
     expect(body.client_message_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   });
 
@@ -226,7 +228,7 @@ describe("generation store", () => {
     await store.send({
       conversationId: null,
       content: "   ",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await store.send({
@@ -404,7 +406,7 @@ describe("generation store", () => {
     const send = store.send({
       conversationId: null,
       content: "hi",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     await store.stop("csrf");
@@ -595,7 +597,7 @@ describe("generation store", () => {
     const draftSend = store.send({
       conversationId: null,
       content: "new",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       csrfToken: "csrf"
     });
     expect(store.isActiveFor(null)).toBe(true);

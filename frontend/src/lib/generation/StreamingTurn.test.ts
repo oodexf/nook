@@ -7,6 +7,8 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { reactiveBox } from "../test-utils/reactive-box.svelte";
 import type {
   GenerationPhase,
@@ -73,7 +75,7 @@ function streamingState(patch: Partial<TurnState> = {}): TurnState {
     reasoningText: "",
     phase: "streaming",
     terminal: null,
-    model: "test-model",
+    model: TEST_MODEL_ID,
     ...patch
   };
 }
