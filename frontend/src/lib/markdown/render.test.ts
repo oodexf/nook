@@ -493,6 +493,58 @@ A = \begin{pmatrix} a & b \\ c & d \end{pmatrix}
     expect(host.querySelector("strong")?.textContent).toBe("safe");
     expect(error?.getAttribute("style")).toBeNull();
   });
+
+  it("renders Chinese reaction conditions written as stray backslash commands", () => {
+    const source = `化学方程式：
+
+1. 氢气燃烧
+
+   $$2H_2+O_2\\xrightarrow{\\点燃}2H_2O$$
+
+2. 碳酸钙分解
+
+   $$CaCO_3\\xrightarrow{\\高温}CaO+CO_2\\uparrow$$
+
+3. 盐酸与氢氧化钠反应
+
+   $$HCl + NaOH \\to NaCl + H_2O$$
+
+4. 光合作用
+
+   $$6CO_2+6H_2O\\xrightarrow{\\光照,\\ 叶绿素}C_6H_{12}O_6+6O_2$$`;
+    const host = render(source);
+
+    expect(host.querySelectorAll(".katex-display")).toHaveLength(4);
+    expect(host.querySelectorAll(".katex-error")).toHaveLength(0);
+    // The stray opener is dropped only for KaTeX; every other token survives.
+    expect(
+      Array.from(host.querySelectorAll("annotation"), (node) => node.textContent)
+    ).toEqual([
+      "2H_2+O_2\\xrightarrow{点燃}2H_2O",
+      "CaCO_3\\xrightarrow{高温}CaO+CO_2\\uparrow",
+      "HCl + NaOH \\to NaCl + H_2O",
+      "6CO_2+6H_2O\\xrightarrow{光照,\\ 叶绿素}C_6H_{12}O_6+6O_2"
+    ]);
+    expect(host.textContent).toContain("点燃");
+    expect(host.textContent).toContain("叶绿素");
+  });
+
+  it("repairs stray backslash commands in the LaTeX delimiter lane too", () => {
+    const host = render(String.raw`条件：\(x \xrightarrow{\高温} y\)。`);
+
+    expect(host.querySelectorAll(".katex-error")).toHaveLength(0);
+    expect(host.querySelector("annotation")?.textContent).toBe(
+      "x \\xrightarrow{高温} y"
+    );
+  });
+
+  it("keeps a line break intact when a non-ASCII character follows it", () => {
+    const host = render("$$\n\\begin{aligned}a&=1\\\\温&=2\\end{aligned}\n$$");
+
+    expect(host.querySelectorAll(".katex-error")).toHaveLength(0);
+    expect(host.querySelector(".katex .vlist")).not.toBeNull();
+    expect(host.textContent).toContain("温");
+  });
 });
 
 describe("renderMarkdown provenance-isolated KaTeX security", () => {

@@ -973,10 +973,23 @@ function escapeHtmlKeepingEntities(text: string): string {
   );
 }
 
+// A backslash directly before a non-ASCII character can never open a valid
+// control sequence, yet models routinely emit that form when annotating
+// Chinese reaction conditions (`\xrightarrow{\点燃}`). KaTeX aborts the whole
+// formula on it, so drop just that backslash. Backslashes are counted in runs
+// because `\\` is a line break whose second character is not an opener.
+const NON_ASCII_COMMAND_OPENER = /\\+(?=\P{ASCII})/gu;
+
+function repairNonAsciiCommands(tex: string): string {
+  return tex.replace(NON_ASCII_COMMAND_OPENER, (run) =>
+    run.length % 2 === 0 ? run : run.slice(1)
+  );
+}
+
 function renderKatex(record: MathRecord): string {
   let generated: string;
   try {
-    generated = katex.renderToString(record.tex, {
+    generated = katex.renderToString(repairNonAsciiCommands(record.tex), {
       ...SAFE_KATEX_OPTIONS,
       throwOnError: true,
       displayMode: record.displayMode
