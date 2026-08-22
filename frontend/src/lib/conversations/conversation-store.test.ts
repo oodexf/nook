@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { onSessionExpired } from "../api/client";
 import type { ConversationSummary } from "../api/conversations";
 import {
@@ -20,7 +22,7 @@ function summary(
   return {
     id,
     title: `对话 ${id}`,
-    model: "test-model",
+    model: TEST_MODEL_ID,
     created_at: 1786000000000,
     updated_at: 1786000001000,
     ...overrides
@@ -300,6 +302,98 @@ describe("conversation store", () => {
     expect(store.current?.conversation.title).toBe("改名后");
     // The renamed conversation is now the most recently updated.
     expect(store.items[0]?.id).toBe(ID_B);
+  });
+
+  it("reconciles model update from the server in list and current state", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(pageResponse([summary(ID_A)], null));
+    const store = createConversationStore();
+    await store.load();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, detail(ID_A)));
+    await store.open(ID_A);
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, summary(ID_A, { model: "model-b", updated_at: 400 }))
+    );
+    await store.updateModel(ID_A, "model-b", "csrf-1");
+
+    expect(store.items[0]?.model).toBe("model-b");
+    expect(store.current?.conversation.model).toBe("model-b");
+    expect(fetchMock.mock.calls[2]?.[1]?.method).toBe("PUT");
+  });
+
+  it("serializes model updates and ignores a stale response after navigation", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      pageResponse([summary(ID_A), summary(ID_B)], null)
+    );
+    const store = createConversationStore();
+    await store.load();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, detail(ID_A)));
+    await store.open(ID_A);
+
+    let resolveUpdate: (response: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveUpdate = resolve;
+        })
+    );
+    const update = store.updateModel(ID_A, "model-b", "csrf-1");
+    expect(store.isUpdatingModel(ID_A)).toBe(true);
+    await expect(
+      store.updateModel(ID_A, "model-c", "csrf-1")
+    ).rejects.toMatchObject({ code: "model_update_in_progress" });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, detail(ID_B)));
+    await store.open(ID_B);
+    expect(store.isUpdatingModel(ID_A)).toBe(true);
+    expect(store.isUpdatingModel(ID_B)).toBe(false);
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, summary(ID_B, { model: "model-c", updated_at: 450 }))
+    );
+    await expect(store.updateModel(ID_B, "model-c", "csrf-1")).resolves.toMatchObject({
+      id: ID_B,
+      model: "model-c"
+    });
+
+    resolveUpdate(
+      jsonResponse(200, summary(ID_A, { model: "model-b", updated_at: 400 }))
+    );
+    await update;
+
+    expect(store.isUpdatingModel(ID_A)).toBe(false);
+    expect(store.isUpdatingModel(ID_B)).toBe(false);
+    expect(store.selectedId).toBe(ID_B);
+    expect(store.current?.conversation.id).toBe(ID_B);
+    expect(store.current?.conversation.model).toBe("model-c");
+    expect(store.items.find((item) => item.id === ID_A)?.model).toBe("model-b");
+  });
+
+  it("does not touch local state when model update fails", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(pageResponse([summary(ID_A)], null));
+    const store = createConversationStore();
+    await store.load();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, detail(ID_A)));
+    await store.open(ID_A);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        error: {
+          code: "generation_in_progress",
+          message: "active",
+          request_id: "r1"
+        }
+      })
+    );
+
+    await expect(
+      store.updateModel(ID_A, "model-b", "csrf-1")
+    ).rejects.toMatchObject({ code: "generation_in_progress" });
+    expect(store.isUpdatingModel(ID_A)).toBe(false);
+    expect(store.items[0]?.model).toBe(TEST_MODEL_ID);
+    expect(store.current?.conversation.model).toBe(TEST_MODEL_ID);
   });
 
   it("does not touch local state when rename fails", async () => {

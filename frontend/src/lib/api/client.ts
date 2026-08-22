@@ -119,7 +119,7 @@ export function decodeErrorBody(value: unknown): DecodedErrorBody | null {
 }
 
 export type ApiRequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Required on state-changing requests; sent as `X-CSRF-Token`. */
   csrfToken?: string;
   /** JSON-serializable request body. */

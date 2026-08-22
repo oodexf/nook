@@ -7,6 +7,8 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { createGenerationStore } from "../generation/generation-store.svelte";
 import { createModelStore } from "../models/model-store.svelte";
 import ChatPane from "./ChatPane.svelte";
@@ -14,12 +16,15 @@ import { createConversationStore } from "./conversation-store.svelte";
 
 const encoder = new TextEncoder();
 
-const MODEL_ID = "test-model";
+const MODEL_ID = TEST_MODEL_ID;
 
 function catalogResponse(): Response {
   return new Response(
     JSON.stringify({
-      models: [{ id: MODEL_ID, label: "Test Model" }],
+      models: [
+        { id: MODEL_ID, label: "Test Model" },
+        { id: "model-b", label: "Model B" }
+      ],
       default_model: MODEL_ID,
       refreshed_at: 1786000000000,
       stale: false,
@@ -91,6 +96,7 @@ function installRouter(options: {
   streamText: () => string;
   conversations?: Record<string, unknown>[];
   detailMessages?: Record<string, unknown>[];
+  updateModel?: (id: string) => Promise<Response> | Response;
 }) {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const stream = new ReadableStream<Uint8Array>({
@@ -130,6 +136,16 @@ function installRouter(options: {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
+      );
+    }
+    if (/^\/api\/v1\/conversations\/[^/?]+\/model$/.test(url) && method === "PUT") {
+      const id = url.split("/").at(-2) as string;
+      return Promise.resolve(
+        options.updateModel?.(id) ??
+          new Response(JSON.stringify(summary(id, `对话 ${id}`)), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          })
       );
     }
     if (url.includes("/cancel")) {
@@ -217,6 +233,129 @@ describe("ChatPane streaming", () => {
     vi.unstubAllGlobals();
     window.localStorage.clear();
     document.body.innerHTML = "";
+  });
+
+  it("disables send and every open selector option while a model update is pending", async () => {
+    let resolveUpdate: (response: Response) => void = () => undefined;
+    installRouter({
+      streamText: () => "",
+      conversations: [summary("c-1", "对话 c-1")],
+      detailMessages: [messageRecord("a-old", "c-1")],
+      updateModel: () =>
+        new Promise<Response>((resolve) => {
+          resolveUpdate = resolve;
+        })
+    });
+    const pane = mountPane();
+    await pane.modelStore.load();
+    await pane.store.load();
+    await pane.store.open("c-1");
+    flushSync();
+
+    const trigger = pane.container.querySelector<HTMLButtonElement>(".model-trigger");
+    trigger?.click();
+    flushSync();
+    const modelB = Array.from(
+      pane.container.querySelectorAll<HTMLButtonElement>(".model-option")
+    ).find((option) => option.textContent?.includes("Model B"));
+    modelB?.click();
+    await vi.waitFor(() => expect(pane.store.isUpdatingModel("c-1")).toBe(true));
+    flushSync();
+
+    expect(trigger?.disabled).toBe(true);
+    expect(
+      Array.from(
+        pane.container.querySelectorAll<HTMLButtonElement>(".model-option")
+      ).every((option) => option.disabled)
+    ).toBe(true);
+    typeComposer(pane.container, "must wait");
+    expect(
+      pane.container.querySelector<HTMLButtonElement>("button.send")?.disabled
+    ).toBe(true);
+
+    resolveUpdate(
+      new Response(
+        JSON.stringify({
+          ...summary("c-1", "对话 c-1"),
+          model: "model-b",
+          updated_at: 1786000004000
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await vi.waitFor(() => expect(pane.store.isUpdatingModel("c-1")).toBe(false));
+    pane.destroy();
+  });
+
+  it("keeps another conversation usable while the first conversation model update is pending", async () => {
+    let resolveA: (response: Response) => void = () => undefined;
+    installRouter({
+      streamText: () => "",
+      conversations: [summary("c-1", "对话 c-1"), summary("c-2", "对话 c-2")],
+      detailMessages: [messageRecord("a-old", "c-1")],
+      updateModel: (id) =>
+        id === "c-1"
+          ? new Promise<Response>((resolve) => {
+              resolveA = resolve;
+            })
+          : new Response(
+              JSON.stringify({
+                ...summary("c-2", "对话 c-2"),
+                model: "model-b",
+                updated_at: 1786000005000
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            )
+    });
+    const pane = mountPane();
+    await pane.modelStore.load();
+    await pane.store.load();
+    await pane.store.open("c-1");
+    flushSync();
+
+    pane.container.querySelector<HTMLButtonElement>(".model-trigger")?.click();
+    flushSync();
+    Array.from(
+      pane.container.querySelectorAll<HTMLButtonElement>(".model-option")
+    )
+      .find((option) => option.textContent?.includes("Model B"))
+      ?.click();
+    await vi.waitFor(() => expect(pane.store.isUpdatingModel("c-1")).toBe(true));
+
+    await pane.store.open("c-2");
+    flushSync();
+    const trigger = pane.container.querySelector<HTMLButtonElement>(".model-trigger");
+    expect(trigger?.disabled).toBe(false);
+    typeComposer(pane.container, "B remains usable");
+    expect(
+      pane.container.querySelector<HTMLButtonElement>("button.send")?.disabled
+    ).toBe(false);
+
+    trigger?.click();
+    flushSync();
+    Array.from(
+      pane.container.querySelectorAll<HTMLButtonElement>(".model-option")
+    )
+      .find((option) => option.textContent?.includes("Model B"))
+      ?.click();
+    await vi.waitFor(() => {
+      expect(pane.store.current?.conversation.id).toBe("c-2");
+      expect(pane.store.current?.conversation.model).toBe("model-b");
+    });
+
+    resolveA(
+      new Response(
+        JSON.stringify({
+          ...summary("c-1", "对话 c-1"),
+          model: "model-b",
+          updated_at: 1786000004000
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await vi.waitFor(() => expect(pane.store.isUpdatingModel("c-1")).toBe(false));
+    expect(pane.store.current?.conversation.id).toBe("c-2");
+    pane.destroy();
   });
 
   it("sends a first message, streams into the overlay, and reconciles", async () => {

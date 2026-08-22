@@ -21,6 +21,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "message_reasoning",
         sql: include_str!("../migrations/0002_message_reasoning.sql"),
     },
+    Migration {
+        version: 3,
+        name: "mutable_conversation_model",
+        sql: include_str!("../migrations/0003_mutable_conversation_model.sql"),
+    },
 ];
 
 pub(crate) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

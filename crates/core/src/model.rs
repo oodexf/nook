@@ -101,6 +101,7 @@ pub enum ModelCatalogError {
     InvalidResponse,
     EmptyCatalog,
     DefaultModelMissing,
+    SelectedModelUnavailable,
 }
 
 impl ModelCatalogError {
@@ -114,6 +115,7 @@ impl ModelCatalogError {
             Self::InvalidResponse => "model_provider_invalid_response",
             Self::EmptyCatalog => "model_catalog_empty",
             Self::DefaultModelMissing => "model_default_missing",
+            Self::SelectedModelUnavailable => "model_unavailable",
         }
     }
 
@@ -129,6 +131,7 @@ impl ModelCatalogError {
             Self::DefaultModelMissing => {
                 "The configured default model is not available from the provider."
             }
+            Self::SelectedModelUnavailable => "The selected model is no longer available.",
         }
     }
 }

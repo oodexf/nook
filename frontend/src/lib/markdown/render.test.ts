@@ -44,7 +44,8 @@ describe("renderMarkdown security matrix (AC-07)", () => {
   it("strips markdown image-with-script and nested script payloads", () => {
     const host = render("<div><script>alert(document.cookie)</script></div>");
     expect(host.querySelector("script")).toBeNull();
-    expect(host.querySelector("div")).toBeNull();
+    expect(host.querySelector("div")).not.toBeNull();
+    expect(host.textContent).not.toContain("alert(document.cookie)");
   });
 
   it("removes event handler attributes from surviving tags", () => {
@@ -125,7 +126,7 @@ describe("renderMarkdown security matrix (AC-07)", () => {
     const host = render('<div><script>alert(1)</script><img src=x onerror=alert(2)>');
     expect(host.querySelector("script")).toBeNull();
     expect(host.querySelector("img")).toBeNull();
-    expect(host.querySelector("div")).toBeNull();
+    expect(host.querySelector("div")).not.toBeNull();
   });
 
   it("strips form and input carriers", () => {
@@ -136,12 +137,42 @@ describe("renderMarkdown security matrix (AC-07)", () => {
     expect(host.querySelector("input")).toBeNull();
   });
 
-  it("strips style tags and style attributes", () => {
+  it("strips style tags and dangerous style declarations", () => {
     const host = render(
-      '<style>body{display:none}</style><p style="background:url(javascript:alert(1))">x</p>'
+      '<style>body{display:none}</style><p style="color:red;background:url(javascript:alert(1));animation:spin 1s">x</p>'
     );
     expect(host.querySelector("style")).toBeNull();
-    expect(host.querySelector("p")?.getAttribute("style")).toBeNull();
+    expect(host.querySelector("p")?.getAttribute("style")).toBe("color: red;");
+  });
+
+  it("allows the approved static HTML containers and sanitized layout styles", () => {
+    const host = render(
+      '<main style="display:grid;grid-template-columns:1fr 2fr;gap:12px"><section style="padding:8px;border-radius:10px;background:var(--surface-muted)"><details open><summary>More</summary><span style="font-weight:700">Safe</span></details></section></main>'
+    );
+    expect(host.querySelector("main > section > details[open] summary")?.textContent).toBe(
+      "More"
+    );
+    expect(host.querySelector("main")?.getAttribute("style")).toContain(
+      "grid-template-columns: 1fr 2fr"
+    );
+    expect(host.querySelector("section")?.getAttribute("style")).toContain(
+      "background: var(--surface-muted)"
+    );
+  });
+
+  it("rejects executable HTML and unsafe or unknown style values", () => {
+    const host = render(
+      '<div style="position:fixed;z-index:999999;transform:translateX(-100vw);color:var(--attacker);width:calc(100% + 2px);opacity:.5" onclick="alert(1)"><form><input></form><iframe src="https://evil.example"></iframe><img src="x"><svg><path/></svg>safe</div>'
+    );
+    const div = host.querySelector("div");
+    expect(div?.getAttribute("onclick")).toBeNull();
+    expect(div?.getAttribute("style")).toContain("position: fixed");
+    expect(div?.getAttribute("style")).toContain("z-index: 999999");
+    expect(div?.getAttribute("style")).toContain("transform: translateX(-100vw)");
+    expect(div?.getAttribute("style")).toContain("opacity: .5");
+    expect(div?.getAttribute("style")).not.toContain("--attacker");
+    expect(div?.getAttribute("style")).toContain("calc(100% + 2px)");
+    expect(host.querySelector("form, input, iframe, img, svg")).toBeNull();
   });
 
   it("keeps code-fence payloads as inert escaped text", () => {
@@ -555,7 +586,7 @@ describe("renderMarkdown provenance-isolated KaTeX security", () => {
     const raw = Array.from(host.querySelectorAll("p")).find((paragraph) =>
       paragraph.textContent?.includes("fake")
     );
-    expect(raw?.getAttribute("style")).toBeNull();
+    expect(raw?.getAttribute("style")).toBe("position: fixed;");
     expect(raw?.classList.contains("evil")).toBe(true);
     expect(raw?.classList.contains("katex")).toBe(false);
     expect(raw?.classList.contains("katex-display")).toBe(false);
@@ -852,7 +883,7 @@ describe("renderMarkdown KaTeX style filtering (AC-2)", () => {
     expect(filterKatexStyle(":1em")).toBe("");
   });
 
-  it("keeps the ordinary Markdown lane free of style, MathML, SVG, input, and img", () => {
+  it("filters ordinary Markdown style and keeps MathML, SVG, input, and img out", () => {
     const host = render(
       [
         '<span style="color:red">a</span>',
@@ -862,11 +893,22 @@ describe("renderMarkdown KaTeX style filtering (AC-2)", () => {
         '<svg><path d="M0 0"/></svg>',
         '<input type="checkbox" checked>',
         '<img src="https://evil.example/x.png" alt="e">',
-        '<mpadded voffset="3pt">f</mpadded>'
+        '<mpadded voffset="3pt">f</mpadded>',
+        '<div style="animation:spin 1s;background:url(x)">g</div>'
       ].join("\n\n")
     );
 
-    expect(host.querySelector("[style]")).toBeNull();
+    // Inline style is no longer banned outright: the HTML artifact lane needs
+    // it, so declarations survive only through the property allow-list.
+    const styleOf = (selector: string, text: string): string | null =>
+      Array.from(host.querySelectorAll<HTMLElement>(selector))
+        .find((node) => node.textContent?.trim() === text)
+        ?.getAttribute("style") ?? null;
+
+    expect(styleOf("span", "a")).toBe("color: red;");
+    expect(styleOf("p", "b")).toBe("height: 1em;");
+    // An unlisted property and a url() value leave nothing to keep.
+    expect(styleOf("div", "g")).toBeNull();
     expect(host.querySelector("math, mo, mpadded, mphantom")).toBeNull();
     expect(host.querySelector("svg, path")).toBeNull();
     expect(host.querySelector("input")).toBeNull();
@@ -880,7 +922,9 @@ describe("renderMarkdown KaTeX style filtering (AC-2)", () => {
     const failed = render("$\\notARealCommand{x}$. ");
     expect(failed.querySelector(".katex-error")).not.toBeNull();
 
-    const strict = render('<span style="color:red">x</span>');
+    // `border-top-width` sits inside the KaTeX value grammar but outside the
+    // HTML property allow-list, so it survives only if the lane leaked.
+    const strict = render('<span style="border-top-width:2px">x</span>');
     expect(strict.querySelector("span")?.getAttribute("style")).toBeNull();
     expect(strict.querySelector("span")?.textContent).toBe("x");
   });

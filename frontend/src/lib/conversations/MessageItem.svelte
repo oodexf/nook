@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChatMessage } from "../api/conversations";
+  import type { ChatArtifact } from "../artifacts/artifacts";
   import CopyButton from "../components/CopyButton.svelte";
   import ReasoningBlock from "../components/ReasoningBlock.svelte";
   import RefreshIcon from "../components/RefreshIcon.svelte";
@@ -25,13 +26,15 @@
     retryable?: boolean;
     retryDisabled?: boolean;
     onRetry?: ((assistantMessageId: string) => void) | null;
+    onOpenArtifact?: ((artifact: ChatArtifact, trigger: HTMLButtonElement) => void) | null;
   };
 
   const {
     message,
     retryable = false,
     retryDisabled = false,
-    onRetry = null
+    onRetry = null,
+    onOpenArtifact = null
   }: Props = $props();
 
   const roleLabel = $derived(message.role === "user" ? "你" : "助手");
@@ -77,7 +80,13 @@
         initiallyExpanded={false}
       />
     {/if}
-    <MarkdownContent content={message.content} ariaLabel="助手消息内容" />
+    <MarkdownContent
+      content={message.content}
+      ariaLabel="助手消息内容"
+      artifactMessageId={message.id}
+      artifactsSettled={message.status !== "streaming"}
+      {onOpenArtifact}
+    />
   {:else}
     <p class="content">{message.content}</p>
   {/if}

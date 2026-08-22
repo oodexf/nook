@@ -119,23 +119,41 @@ pub async fn existing_message(
         Ok(request) => request,
         Err(response) => return *response,
     };
-    let detail = match state.storage.get(conversation_id.clone()).await {
-        Ok(detail) => detail,
-        Err(error) => return StreamApiError::from(error).into_response(&request_id),
-    };
-    if request
-        .model
-        .as_ref()
-        .is_some_and(|model| model != &detail.conversation.model)
-    {
-        return StreamApiError::ModelLocked.into_response(&request_id);
-    }
-    if let Err(error) = state
-        .models
-        .validate_available(&detail.conversation.model)
+    let replay_detail = match state
+        .storage
+        .find_by_client_message_id(request.client_message_id.clone())
         .await
     {
-        return map_catalog_error(error).into_response(&request_id);
+        Ok(Some(detail)) if detail.conversation.id == conversation_id => Some(detail),
+        Ok(_) => None,
+        Err(error) => return StreamApiError::from(error).into_response(&request_id),
+    };
+    let detail = if let Some(detail) = replay_detail.as_ref() {
+        detail.clone()
+    } else {
+        match state.storage.get(conversation_id.clone()).await {
+            Ok(detail) => detail,
+            Err(error) => return StreamApiError::from(error).into_response(&request_id),
+        }
+    };
+    // A duplicate idempotency key must resolve to its original logical result
+    // even if the conversation's current model changed after that request.
+    // New requests still cannot use this field as an implicit model switch.
+    if replay_detail.is_none() {
+        if request
+            .model
+            .as_ref()
+            .is_some_and(|model| model != &detail.conversation.model)
+        {
+            return StreamApiError::ModelMismatch.into_response(&request_id);
+        }
+        if let Err(error) = state
+            .models
+            .validate_available(&detail.conversation.model)
+            .await
+        {
+            return map_catalog_error(error).into_response(&request_id);
+        }
     }
     let created_at = detail
         .messages
@@ -820,8 +838,13 @@ fn default_title(content: &str) -> String {
     }
 }
 
-fn map_catalog_error(_error: chat_core::model::ModelCatalogError) -> StreamApiError {
-    StreamApiError::ModelUnavailable
+fn map_catalog_error(error: chat_core::model::ModelCatalogError) -> StreamApiError {
+    match error {
+        chat_core::model::ModelCatalogError::SelectedModelUnavailable => {
+            StreamApiError::ModelUnavailable
+        }
+        other => StreamApiError::ModelCatalog(other),
+    }
 }
 
 #[derive(Debug)]
@@ -830,9 +853,11 @@ enum StreamApiError {
     PayloadTooLarge,
     MessageTooLarge,
     NotFound,
-    ModelLocked,
+    ModelMismatch,
     ModelUnavailable,
+    ModelCatalog(chat_core::model::ModelCatalogError),
     GenerationInProgress,
+    Conflict,
     Capacity,
     Provider(ChatProviderError),
     Storage,
@@ -843,7 +868,8 @@ impl From<RepositoryError> for StreamApiError {
     fn from(error: RepositoryError) -> Self {
         match error.kind() {
             RepositoryErrorKind::NotFound => Self::NotFound,
-            RepositoryErrorKind::Conflict => Self::GenerationInProgress,
+            RepositoryErrorKind::Conflict => Self::Conflict,
+            RepositoryErrorKind::GenerationInProgress => Self::GenerationInProgress,
             RepositoryErrorKind::Unavailable => Self::Storage,
             RepositoryErrorKind::CorruptData => Self::Internal,
         }
@@ -873,20 +899,46 @@ impl StreamApiError {
                 "conversation_not_found",
                 "The conversation or response was not found.",
             ),
-            Self::ModelLocked => (
+            Self::ModelMismatch => (
                 StatusCode::CONFLICT,
-                "model_locked",
-                "This conversation uses a different locked model.",
+                "model_mismatch",
+                "The selected model does not match the conversation's current model.",
             ),
             Self::ModelUnavailable => (
                 StatusCode::CONFLICT,
                 "model_unavailable",
                 "The selected model is no longer available.",
             ),
+            Self::ModelCatalog(error) => {
+                let status = match error {
+                    chat_core::model::ModelCatalogError::RateLimited => {
+                        StatusCode::TOO_MANY_REQUESTS
+                    }
+                    chat_core::model::ModelCatalogError::Timeout => StatusCode::GATEWAY_TIMEOUT,
+                    chat_core::model::ModelCatalogError::Unavailable => {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    }
+                    chat_core::model::ModelCatalogError::Unauthorized => StatusCode::BAD_GATEWAY,
+                    chat_core::model::ModelCatalogError::InvalidResponse
+                    | chat_core::model::ModelCatalogError::EmptyCatalog
+                    | chat_core::model::ModelCatalogError::DefaultModelMissing => {
+                        StatusCode::UNPROCESSABLE_ENTITY
+                    }
+                    chat_core::model::ModelCatalogError::SelectedModelUnavailable => {
+                        StatusCode::CONFLICT
+                    }
+                };
+                (status, error.code(), error.safe_message())
+            }
             Self::GenerationInProgress => (
                 StatusCode::CONFLICT,
                 "generation_in_progress",
                 "This conversation already has an active response.",
+            ),
+            Self::Conflict => (
+                StatusCode::CONFLICT,
+                "conflict",
+                "The request conflicts with existing data.",
             ),
             Self::Capacity => (
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -932,7 +984,8 @@ mod tests {
         valid_client_message_id,
     };
     use crate::request_context::RequestId;
-    use chat_core::conversation::MessageStatus;
+    use chat_core::conversation::{MessageRole, MessageStatus};
+    use chat_core::provider::{ContextLimits, select_bounded_context};
 
     fn fixture_message(
         id: &str,
@@ -966,6 +1019,40 @@ mod tests {
         let context = messages_before_assistant(&messages, "retry-placeholder", true);
         assert_eq!(context.len(), 1);
         assert_eq!(context[0].id, "user");
+    }
+
+    #[test]
+    fn cross_model_history_is_kept_in_bounded_context() {
+        let mut first_user = fixture_message("first-user", MessageRole::User);
+        first_user.content = "question for model A".to_owned();
+        let mut first_assistant = fixture_message("first-assistant", MessageRole::Assistant);
+        first_assistant.model = Some("model-a".to_owned());
+        first_assistant.content = "answer from model A".to_owned();
+        let mut second_user = fixture_message("second-user", MessageRole::User);
+        second_user.content = "continue with model B".to_owned();
+        let placeholder = fixture_message("model-b-placeholder", MessageRole::Assistant);
+        let messages = vec![first_user, first_assistant, second_user, placeholder];
+
+        let candidates = messages_before_assistant(&messages, "model-b-placeholder", false);
+        let context = select_bounded_context(
+            &candidates,
+            ContextLimits {
+                max_messages: 10,
+                max_chars: 1_000,
+            },
+        )
+        .expect("cross-model context should remain valid");
+        assert_eq!(
+            context
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "question for model A",
+                "answer from model A",
+                "continue with model B"
+            ]
+        );
     }
 
     #[test]

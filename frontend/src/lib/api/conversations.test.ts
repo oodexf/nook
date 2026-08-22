@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TEST_MODEL_ID } from "../test-utils/test-provider";
+
 import { ApiError } from "./client";
 import {
   decodeChatMessage,
@@ -9,7 +11,8 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
-  renameConversation
+  renameConversation,
+  updateConversationModel
 } from "./conversations";
 
 const ID_A = "01J0000000000000000000000A";
@@ -19,7 +22,7 @@ function summaryPayload(overrides: Record<string, unknown> = {}) {
   return {
     id: ID_A,
     title: "研究笔记",
-    model: "test-model",
+    model: TEST_MODEL_ID,
     created_at: 1786000000000,
     updated_at: 1786000001000,
     ...overrides
@@ -34,7 +37,7 @@ function messagePayload(overrides: Record<string, unknown> = {}) {
     role: "assistant",
     content: "你好",
     status: "completed",
-    model: "test-model",
+    model: TEST_MODEL_ID,
     error_code: null,
     created_at: 1786000000000,
     finished_at: 1786000000500,
@@ -54,7 +57,7 @@ describe("decodeConversationSummary", () => {
     expect(decodeConversationSummary(summaryPayload())).toEqual({
       id: ID_A,
       title: "研究笔记",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       createdAt: 1786000000000,
       updatedAt: 1786000001000,
       pinned: false
@@ -85,7 +88,7 @@ describe("decodeChatMessage", () => {
       content: "你好",
       reasoning: null,
       status: "completed",
-      model: "test-model",
+      model: TEST_MODEL_ID,
       errorCode: null,
       createdAt: 1786000000000,
       finishedAt: 1786000000500
@@ -251,6 +254,25 @@ describe("conversation endpoints", () => {
     expect(request?.body).toBe(JSON.stringify({ title: "新标题" }));
     expect(updated.title).toBe("新标题");
     expect(updated.updatedAt).toBe(1786000002000);
+  });
+
+  it("updates the current model with CSRF and decodes the result", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, summaryPayload({ model: "model-b", updated_at: 1786000003000 }))
+    );
+
+    const updated = await updateConversationModel(ID_A, "model-b", "csrf-9");
+
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe(
+      `/api/v1/conversations/${ID_A}/model`
+    );
+    expect(request?.method).toBe("PUT");
+    expect((request?.headers as Record<string, string>)["X-CSRF-Token"]).toBe(
+      "csrf-9"
+    );
+    expect(request?.body).toBe(JSON.stringify({ model: "model-b" }));
+    expect(updated.model).toBe("model-b");
   });
 
   it("deletes with CSRF and resolves on 204", async () => {

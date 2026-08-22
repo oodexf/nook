@@ -58,10 +58,18 @@ const STRICT_ALLOWED_TAGS = [
   "tbody",
   "tr",
   "th",
-  "td"
+  "td",
+  "div",
+  "section",
+  "article",
+  "aside",
+  "main",
+  "span",
+  "details",
+  "summary"
 ];
 
-const STRICT_ALLOWED_ATTR = ["href", "title", "class", "open"];
+const STRICT_ALLOWED_ATTR = ["href", "title", "class", "style", "open"];
 
 // Explicit scheme allow-list: http(s), mailto, tel, plus relative URLs and
 // fragments. The KaTeX lane permits no URL-bearing attribute at all.
@@ -187,6 +195,169 @@ const KATEX_PURIFY_CONFIG = {
   ALLOW_DATA_ATTR: false,
   ALLOW_ARIA_ATTR: false
 };
+
+const SAFE_HTML_STYLE_PROPERTIES = new Set([
+  "align-content",
+  "align-items",
+  "align-self",
+  "background",
+  "background-color",
+  "border",
+  "border-block",
+  "border-block-end",
+  "border-block-start",
+  "border-bottom",
+  "border-bottom-width",
+  "border-color",
+  "border-inline",
+  "border-inline-end",
+  "border-inline-start",
+  "border-left",
+  "border-radius",
+  "border-right",
+  "border-style",
+  "border-top",
+  "border-width",
+  "box-shadow",
+  "box-sizing",
+  "bottom",
+  "color",
+  "column-gap",
+  "display",
+  "flex",
+  "flex-basis",
+  "flex-direction",
+  "flex-grow",
+  "flex-shrink",
+  "flex-wrap",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "gap",
+  "grid-auto-columns",
+  "grid-auto-flow",
+  "grid-auto-rows",
+  "grid-column",
+  "grid-column-end",
+  "grid-column-start",
+  "grid-row",
+  "grid-row-end",
+  "grid-row-start",
+  "grid-template-columns",
+  "grid-template-rows",
+  "height",
+  "justify-content",
+  "justify-items",
+  "justify-self",
+  "left",
+  "letter-spacing",
+  "line-height",
+  "margin",
+  "margin-block",
+  "margin-block-end",
+  "margin-block-start",
+  "margin-bottom",
+  "margin-inline",
+  "margin-inline-end",
+  "margin-inline-start",
+  "margin-left",
+  "margin-right",
+  "margin-top",
+  "max-height",
+  "max-width",
+  "min-height",
+  "min-width",
+  "opacity",
+  "order",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "padding",
+  "padding-block",
+  "padding-block-end",
+  "padding-block-start",
+  "padding-bottom",
+  "padding-inline",
+  "padding-inline-end",
+  "padding-inline-start",
+  "padding-left",
+  "padding-right",
+  "padding-top",
+  "place-content",
+  "place-items",
+  "place-self",
+  "position",
+  "right",
+  "row-gap",
+  "text-align",
+  "top",
+  "transform",
+  "vertical-align",
+  "white-space",
+  "width",
+  "z-index"
+]);
+
+const APPROVED_THEME_VARIABLES = new Set([
+  "--bg",
+  "--surface",
+  "--surface-muted",
+  "--text",
+  "--text-strong",
+  "--muted",
+  "--border",
+  "--border-strong",
+  "--accent",
+  "--accent-contrast",
+  "--danger",
+  "--success",
+  "--warning-text",
+  "--radius-sm",
+  "--radius-md",
+  "--radius-lg",
+  "--shadow"
+]);
+
+const UNSAFE_HTML_STYLE_VALUE =
+  /(?:url\s*\(|expression\s*\(|javascript:|@import|[<>{}])/i;
+const CSS_VARIABLE_REFERENCE = /var\s*\(\s*(--[a-z0-9_-]+)/giu;
+const CSS_VARIABLE_FUNCTION = /var\s*\(/giu;
+
+function hasOnlyApprovedThemeReferences(value: string): boolean {
+  const functionCount = value.match(CSS_VARIABLE_FUNCTION)?.length ?? 0;
+  if (functionCount === 0) return true;
+  CSS_VARIABLE_REFERENCE.lastIndex = 0;
+  let references = 0;
+  for (const match of value.matchAll(CSS_VARIABLE_REFERENCE)) {
+    references += 1;
+    if (!APPROVED_THEME_VARIABLES.has(match[1])) return false;
+  }
+  return references === functionCount;
+}
+
+function isAllowedHtmlStyleDeclaration(property: string, value: string): boolean {
+  return (
+    SAFE_HTML_STYLE_PROPERTIES.has(property) &&
+    value.length > 0 &&
+    value.length <= 120 &&
+    !UNSAFE_HTML_STYLE_VALUE.test(value) &&
+    hasOnlyApprovedThemeReferences(value)
+  );
+}
+
+function sanitizeHtmlStyle(style: string): string | null {
+  const kept: string[] = [];
+  for (const declaration of style.split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator < 1) continue;
+    const property = declaration.slice(0, separator).trim().toLowerCase();
+    const value = declaration.slice(separator + 1).trim();
+    if (!isAllowedHtmlStyleDeclaration(property, value)) continue;
+    kept.push(`${property}: ${value}`);
+  }
+  return kept.length === 0 ? null : `${kept.join("; ")};`;
+}
 
 /**
  * Payload veto (first pass, applied to every declaration regardless of
@@ -908,23 +1079,24 @@ parser.use({
 });
 
 let sanitizerHooksInstalled = false;
-
 function ensureSanitizerHooks(): void {
   if (sanitizerHooksInstalled) return;
   sanitizerHooksInstalled = true;
 
   DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (data.attrName !== "style") return;
-    if (activeLane !== "katex") {
-      data.keepAttr = false;
+    if (activeLane === "katex") {
+      const kept = filterKatexStyle(data.attrValue);
+      if (kept === "") {
+        data.keepAttr = false;
+        return;
+      }
+      data.attrValue = kept;
       return;
     }
-    const kept = filterKatexStyle(data.attrValue);
-    if (kept === "") {
-      data.keepAttr = false;
-      return;
-    }
-    data.attrValue = kept;
+    const sanitized = sanitizeHtmlStyle(data.attrValue);
+    if (sanitized === null) data.keepAttr = false;
+    else data.attrValue = sanitized;
   });
 
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {

@@ -3,6 +3,8 @@ mod chat;
 mod config;
 mod conversations;
 mod generation_registry;
+#[cfg(test)]
+mod live_tests;
 mod model_catalog;
 mod models;
 mod provider;
@@ -24,7 +26,7 @@ use axum::{
     extract::{DefaultBodyLimit, State},
     http::StatusCode,
     middleware,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
 };
 use chat_core::{APP_NAME, repository::StorageHealth};
 use chat_storage::SqliteStorage;
@@ -130,6 +132,43 @@ async fn main() {
     }
 }
 
+fn conversation_routes(state: &AppState) -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/v1/conversations",
+            get(conversations::list).route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_session,
+            )),
+        )
+        .route(
+            "/api/v1/conversations/{id}",
+            get(conversations::get).route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_session,
+            )),
+        )
+        .route(
+            "/api/v1/conversations/{id}",
+            patch(conversations::rename)
+                .delete(conversations::delete)
+                .layer(DefaultBodyLimit::max(4 * 1024))
+                .route_layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth::require_mutation,
+                )),
+        )
+        .route(
+            "/api/v1/conversations/{id}/model",
+            put(conversations::update_model)
+                .layer(DefaultBodyLimit::max(4 * 1024))
+                .route_layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth::require_mutation,
+                )),
+        )
+}
+
 fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health/live", get(live))
@@ -166,30 +205,7 @@ fn build_router(state: AppState) -> Router {
                 auth::require_mutation,
             )),
         )
-        .route(
-            "/api/v1/conversations",
-            get(conversations::list).route_layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth::require_session,
-            )),
-        )
-        .route(
-            "/api/v1/conversations/{id}",
-            get(conversations::get).route_layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth::require_session,
-            )),
-        )
-        .route(
-            "/api/v1/conversations/{id}",
-            patch(conversations::rename)
-                .delete(conversations::delete)
-                .layer(DefaultBodyLimit::max(4 * 1024))
-                .route_layer(middleware::from_fn_with_state(
-                    state.clone(),
-                    auth::require_mutation,
-                )),
-        )
+        .merge(conversation_routes(&state))
         .route(
             "/api/v1/conversations/new/messages",
             post(chat::new_message)

@@ -219,6 +219,21 @@ impl ConversationRepository for SqliteStorage {
         .await
     }
 
+    async fn update_model(
+        &self,
+        id: String,
+        model: String,
+        updated_at: i64,
+    ) -> Result<Conversation, RepositoryError> {
+        let path = Arc::clone(&self.path);
+        run_blocking(move || {
+            let mut connection = connection::open(&path)?;
+            conversation_repository::update_model(&mut connection, &id, &model, updated_at)
+        })
+        .await
+        .map_err(RepositoryError::from)
+    }
+
     async fn delete(&self, id: String) -> Result<(), RepositoryError> {
         self.with_connection(move |connection| conversation_repository::delete(connection, &id))
             .await
@@ -345,7 +360,8 @@ pub enum StorageError {
     UnsupportedSchema(i64),
     MigrationMismatch(i64),
     NotFound,
-    ModelLocked,
+    ModelMismatch,
+    GenerationInProgress,
     RetryIneligible,
     IdempotencyMismatch,
     InvalidInput,
@@ -368,7 +384,10 @@ impl fmt::Display for StorageError {
                 "database migration metadata does not match version {version}"
             ),
             Self::NotFound => formatter.write_str("record was not found"),
-            Self::ModelLocked => formatter.write_str("conversation model is locked"),
+            Self::ModelMismatch => formatter.write_str("conversation model changed"),
+            Self::GenerationInProgress => {
+                formatter.write_str("conversation has an active generation")
+            }
             Self::RetryIneligible => formatter.write_str("assistant response is not retryable"),
             Self::IdempotencyMismatch => formatter.write_str("idempotency key payload mismatch"),
             Self::InvalidInput => formatter.write_str("invalid repository input"),
@@ -387,7 +406,8 @@ impl std::error::Error for StorageError {
             Self::UnsupportedSchema(_)
             | Self::MigrationMismatch(_)
             | Self::NotFound
-            | Self::ModelLocked
+            | Self::ModelMismatch
+            | Self::GenerationInProgress
             | Self::RetryIneligible
             | Self::IdempotencyMismatch
             | Self::InvalidInput
@@ -413,7 +433,8 @@ impl From<StorageError> for RepositoryError {
     fn from(error: StorageError) -> Self {
         let kind = match &error {
             StorageError::NotFound => RepositoryErrorKind::NotFound,
-            StorageError::ModelLocked
+            StorageError::GenerationInProgress => RepositoryErrorKind::GenerationInProgress,
+            StorageError::ModelMismatch
             | StorageError::RetryIneligible
             | StorageError::IdempotencyMismatch => RepositoryErrorKind::Conflict,
             StorageError::InvalidInput | StorageError::CorruptData => {

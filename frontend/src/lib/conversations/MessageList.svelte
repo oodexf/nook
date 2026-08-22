@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChatMessage } from "../api/conversations";
+  import type { ChatArtifact } from "../artifacts/artifacts";
   import MessageItem from "./MessageItem.svelte";
 
   /**
@@ -18,13 +19,15 @@
     excludedMessageIds?: readonly string[];
     onRetry?: ((assistantMessageId: string) => void) | null;
     retryDisabled?: boolean;
+    onOpenArtifact?: ((artifact: ChatArtifact, trigger: HTMLButtonElement) => void) | null;
   };
 
   const {
     messages,
     excludedMessageIds = [],
     onRetry = null,
-    retryDisabled = false
+    retryDisabled = false,
+    onOpenArtifact = null
   }: Props = $props();
 
   const RETRYABLE_STATUSES: readonly ChatMessage["status"][] = [
@@ -64,6 +67,7 @@
         retryable={isRetryable(message)}
         {retryDisabled}
         {onRetry}
+        {onOpenArtifact}
       />
     </li>
   {/each}
