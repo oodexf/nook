@@ -49,7 +49,7 @@ fn assistant_placeholder(id: &str, conversation_id: &str) -> Message {
         content: String::new(),
         reasoning: None,
         status: MessageStatus::Streaming,
-        model: Some("gpt-5.6-luna".to_owned()),
+        model: Some("test-model".to_owned()),
         error_code: None,
         created_at: 100,
         finished_at: None,
@@ -62,7 +62,7 @@ fn streaming_generation(id: &str, conversation_id: &str, assistant_message_id: &
         conversation_id: conversation_id.to_owned(),
         assistant_message_id: assistant_message_id.to_owned(),
         provider: "provider".to_owned(),
-        model: "gpt-5.6-luna".to_owned(),
+        model: "test-model".to_owned(),
         status: GenerationStatus::Streaming,
         input_tokens: None,
         output_tokens: None,
@@ -234,7 +234,7 @@ fn conversation(id: &str, updated_at: i64) -> NewConversation {
     NewConversation {
         id: id.to_owned(),
         title: format!("Conversation {id}"),
-        model: "gpt-5.6-luna".to_owned(),
+        model: "test-model".to_owned(),
         created_at: updated_at,
     }
 }
@@ -397,7 +397,7 @@ async fn deleting_conversation_cascades_messages_and_generations() {
         .execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, status, model, created_at)
-             VALUES ('a1', 'c1', 'assistant', '', 'streaming', 'gpt-5.6-luna', 101)",
+             VALUES ('a1', 'c1', 'assistant', '', 'streaming', 'test-model', 101)",
             [],
         )
         .expect("assistant should insert");
@@ -405,7 +405,7 @@ async fn deleting_conversation_cascades_messages_and_generations() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g1', 'c1', 'a1', 'openai-compatible', 'gpt-5.6-luna', 'streaming', 101)",
+             VALUES ('g1', 'c1', 'a1', 'openai-compatible', 'test-model', 'streaming', 101)",
             [],
         )
         .expect("generation should insert");
@@ -722,7 +722,7 @@ async fn active_generation_conflict_rolls_back_assistant_placeholder() {
         content: String::new(),
         reasoning: None,
         status: MessageStatus::Streaming,
-        model: Some("gpt-5.6-luna".to_owned()),
+        model: Some("test-model".to_owned()),
         error_code: None,
         created_at,
         finished_at: None,
@@ -732,7 +732,7 @@ async fn active_generation_conflict_rolls_back_assistant_placeholder() {
         conversation_id: "c1".to_owned(),
         assistant_message_id: assistant_message_id.to_owned(),
         provider: "provider".to_owned(),
-        model: "gpt-5.6-luna".to_owned(),
+        model: "test-model".to_owned(),
         status: GenerationStatus::Streaming,
         input_tokens: None,
         output_tokens: None,
@@ -773,7 +773,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
             .execute(
                 "INSERT INTO messages
                  (id, conversation_id, role, content, status, model, created_at)
-                 VALUES (?1, 'c1', 'assistant', '', 'streaming', 'gpt-5.6-luna', 101)",
+                 VALUES (?1, 'c1', 'assistant', '', 'streaming', 'test-model', 101)",
                 [id],
             )
             .expect("assistant should insert");
@@ -782,7 +782,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g1', 'c1', 'a1', 'provider', 'gpt-5.6-luna', 'pending', 101)",
+             VALUES ('g1', 'c1', 'a1', 'provider', 'test-model', 'pending', 101)",
             [],
         )
         .expect("first active generation should insert");
@@ -791,7 +791,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g2', 'c1', 'a2', 'provider', 'gpt-5.6-luna', 'streaming', 102)",
+                 VALUES ('g2', 'c1', 'a2', 'provider', 'test-model', 'streaming', 102)",
                 [],
             )
             .is_err()
@@ -806,7 +806,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g3', 'c1', 'a3', 'provider', 'gpt-5.6-luna', 'streaming', 104)",
+             VALUES ('g3', 'c1', 'a3', 'provider', 'test-model', 'streaming', 104)",
             [],
         )
         .expect("new generation should insert after terminal state");
@@ -824,7 +824,7 @@ async fn startup_recovery_interrupts_unfinished_rows_and_preserves_content() {
         .execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, status, model, created_at)
-             VALUES ('a1', 'c1', 'assistant', 'partial private output', 'streaming', 'gpt-5.6-luna', 101)",
+             VALUES ('a1', 'c1', 'assistant', 'partial private output', 'streaming', 'test-model', 101)",
             [],
         )
         .expect("assistant should insert");
@@ -832,7 +832,7 @@ async fn startup_recovery_interrupts_unfinished_rows_and_preserves_content() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g1', 'c1', 'a1', 'provider', 'gpt-5.6-luna', 'cancelling', 101)",
+             VALUES ('g1', 'c1', 'a1', 'provider', 'test-model', 'cancelling', 101)",
             [],
         )
         .expect("generation should insert");
@@ -886,7 +886,7 @@ async fn schema_enforces_assistant_generation_link_and_allows_model_changes() {
         .execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, status, model, created_at)
-             VALUES ('a2', 'c2', 'assistant', '', 'streaming', 'gpt-5.6-luna', 102)",
+             VALUES ('a2', 'c2', 'assistant', '', 'streaming', 'test-model', 102)",
             [],
         )
         .expect("assistant should insert");
@@ -899,7 +899,7 @@ async fn schema_enforces_assistant_generation_link_and_allows_model_changes() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g-missing', 'c1', 'missing', 'provider', 'gpt-5.6-luna', 'pending', 103)",
+                 VALUES ('g-missing', 'c1', 'missing', 'provider', 'test-model', 'pending', 103)",
                 [],
             )
             .is_err(),
@@ -913,7 +913,7 @@ async fn schema_enforces_assistant_generation_link_and_allows_model_changes() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g-user', 'c1', 'u1', 'provider', 'gpt-5.6-luna', 'pending', 103)",
+                 VALUES ('g-user', 'c1', 'u1', 'provider', 'test-model', 'pending', 103)",
                 [],
             )
             .is_err()
@@ -923,7 +923,7 @@ async fn schema_enforces_assistant_generation_link_and_allows_model_changes() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g-other', 'c1', 'a2', 'provider', 'gpt-5.6-luna', 'pending', 103)",
+                 VALUES ('g-other', 'c1', 'a2', 'provider', 'test-model', 'pending', 103)",
                 [],
             )
             .is_err()

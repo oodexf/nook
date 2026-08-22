@@ -483,7 +483,7 @@ mod backup_tests {
             .create(NewConversation {
                 id: "01JBACKUPTEST00000000000000".to_owned(),
                 title: "Backup fixture".to_owned(),
-                model: "gpt-5.6-luna".to_owned(),
+                model: "test-model".to_owned(),
                 created_at: 1_786_000_000_000,
             })
             .await

@@ -483,7 +483,7 @@ mod tests {
             .create(NewConversation {
                 id: id.clone(),
                 title: "Original".to_owned(),
-                model: "gpt-5.6-luna".to_owned(),
+                model: "test-model".to_owned(),
                 created_at: 100,
             })
             .await
@@ -500,7 +500,7 @@ mod tests {
                     .header(header::ORIGIN, &state.config.app_origin)
                     .header("X-CSRF-Token", csrf)
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"model":"gpt-5.6-luna"}"#))
+                    .body(Body::from(r#"{"model":"test-model"}"#))
                     .expect("request should build"),
             )
             .await
@@ -516,7 +516,7 @@ mod tests {
                 .expect("conversation should remain")
                 .conversation
                 .model,
-            "gpt-5.6-luna"
+            "test-model"
         );
     }
 
@@ -785,7 +785,7 @@ mod tests {
             .create(NewConversation {
                 id: id.clone(),
                 title: "Original".to_owned(),
-                model: "gpt-5.6-luna".to_owned(),
+                model: "test-model".to_owned(),
                 created_at: 100,
             })
             .await
@@ -876,7 +876,7 @@ mod tests {
             .create(NewConversation {
                 id: id.clone(),
                 title: "Original".to_owned(),
-                model: "gpt-5.6-luna".to_owned(),
+                model: "test-model".to_owned(),
                 created_at: 100,
             })
             .await
