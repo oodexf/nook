@@ -372,13 +372,13 @@ impl UpstreamSseDecoder {
         }
         if let Some(choice) = chunk.choices.into_iter().next() {
             // Reasoning first: providers stream thinking before answer
-            // content. Accept both wire spellings; concatenate in the rare
-            // case a single chunk carries both.
-            let mut reasoning = String::new();
-            if let Some(value) = choice.delta.reasoning_content {
-                reasoning.push_str(&value);
-            }
-            if let Some(value) = choice.delta.reasoning {
+            // content. Accept both wire spellings, but some compatibility
+            // layers populate both with the same delta. Preserve distinct
+            // values in wire-field order while emitting exact duplicates once.
+            let mut reasoning = choice.delta.reasoning_content.unwrap_or_default();
+            if let Some(value) = choice.delta.reasoning
+                && value != reasoning
+            {
                 reasoning.push_str(&value);
             }
             if !reasoning.is_empty() {
@@ -820,7 +820,7 @@ mod tests {
     }
 
     #[test]
-    fn upstream_decoder_maps_reasoning_alias_and_concatenates_both_fields() {
+    fn upstream_decoder_maps_reasoning_alias_and_concatenates_distinct_fields() {
         use chat_core::provider::ChatStreamEvent;
         let mut decoder = super::UpstreamSseDecoder::default();
         let events = decoder
@@ -836,6 +836,19 @@ mod tests {
             .expect("dual-field chunk should decode");
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], ChatStreamEvent::ReasoningDelta(text) if text == "ab"));
+    }
+
+    #[test]
+    fn upstream_decoder_deduplicates_identical_reasoning_fields() {
+        use chat_core::provider::ChatStreamEvent;
+        let mut decoder = super::UpstreamSseDecoder::default();
+        let events = decoder
+            .push(
+                b"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"same\",\"reasoning\":\"same\"}}]}\n\n",
+            )
+            .expect("duplicate dual-field chunk should decode");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], ChatStreamEvent::ReasoningDelta(text) if text == "same"));
     }
 
     #[test]

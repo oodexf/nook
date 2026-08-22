@@ -5,33 +5,39 @@
   import type { ModelStore } from "./model-store.svelte";
 
   /**
-   * Composer-embedded model selector for the empty draft conversation
-   * (08-10 new chat UI upgrade). It replaces the old centered model panel:
-   * the trigger sits left of the send button and shows the current draft
-   * model; clicking opens a popover card above the composer that owns every
-   * catalog state the panel used to render (loading, error, configuration
-   * error, stale cache, refresh). Selecting a model applies it through
-   * `store.selectDraftModel` (validated + persisted) and closes the card.
-   *
-   * Rendered only in the draft view by ChatPane; existing conversations
-   * keep the locked-model label in the header instead. All glyphs are
-   * Lucide inline icons; no emoji anywhere (project iconography rule).
+   * Composer-embedded model selector for draft and existing conversations.
+   * Draft selection stays in the model store; existing-conversation selection
+   * is persisted by the callback supplied by ChatPane.
    */
   type Props = {
     store: ModelStore;
     csrfToken: string;
+    selectedModelId?: string | null;
+    selectionScope?: string | null;
+    disabled?: boolean;
+    onSelect?: (id: string) => Promise<void>;
   };
 
-  const { store, csrfToken }: Props = $props();
+  const {
+    store,
+    csrfToken,
+    selectedModelId = null,
+    selectionScope = null,
+    disabled = false,
+    onSelect
+  }: Props = $props();
 
   let root = $state<HTMLDivElement | null>(null);
   let trigger = $state<HTMLButtonElement | null>(null);
   let open = $state(false);
   let refreshNotice = $state<string | null>(null);
+  let selectionError = $state<string | null>(null);
+  let isSelecting = $state(false);
 
+  const effectiveModelId = $derived(selectedModelId ?? store.draftModelId);
   const currentLabel = $derived(
-    store.models.find((model) => model.id === store.draftModelId)?.label ??
-      store.draftModelId ??
+    store.models.find((model) => model.id === effectiveModelId)?.label ??
+      effectiveModelId ??
       "选择模型"
   );
 
@@ -42,6 +48,7 @@
   }
 
   function togglePopover() {
+    if (disabled || isSelecting) return;
     if (open) {
       closePopover(false);
     } else {
@@ -50,14 +57,37 @@
     }
   }
 
-  function selectModel(id: string) {
-    // The store validates catalog membership and persists the pick; only a
-    // successful application closes the card.
-    if (store.selectDraftModel(id)) closePopover(true);
+  async function selectModel(id: string) {
+    if (disabled || isSelecting) return;
+    // The selected option can become disabled while its click was queued
+    // (for example when a generation starts with the popover open).
+    if (trigger?.disabled) return;
+    if (!store.isModelAvailable(id) || id === effectiveModelId) {
+      closePopover(true);
+      return;
+    }
+    selectionError = null;
+    const ownerScope = selectionScope;
+    if (onSelect === undefined) {
+      if (store.selectDraftModel(id)) closePopover(true);
+      return;
+    }
+    isSelecting = true;
+    try {
+      await onSelect(id);
+      closePopover(true);
+    } catch (error) {
+      if (selectionScope === ownerScope) {
+        selectionError =
+          error instanceof Error ? error.message : "模型切换失败，请重试。";
+      }
+    } finally {
+      isSelecting = false;
+    }
   }
 
   async function handleRefresh() {
-    if (store.isRefreshing) return;
+    if (disabled || isSelecting || store.isRefreshing) return;
     refreshNotice = null;
     try {
       await store.refresh(csrfToken);
@@ -97,7 +127,9 @@
     type="button"
     class="model-trigger"
     bind:this={trigger}
+    disabled={disabled || isSelecting}
     aria-haspopup="dialog"
+    aria-busy={isSelecting}
     aria-expanded={open}
     aria-label={`选择模型,当前为 ${currentLabel}`}
     title="选择模型"
@@ -119,7 +151,7 @@
           <button
             type="button"
             class="refresh-button"
-            disabled={store.isRefreshing}
+            disabled={disabled || isSelecting || store.isRefreshing}
             onclick={() => void handleRefresh()}
           >
             <RefreshIcon size={14} />
@@ -142,7 +174,7 @@
           <button
             type="button"
             class="retry"
-            disabled={store.isRefreshing}
+            disabled={disabled || isSelecting || store.isRefreshing}
             onclick={() => void handleRefresh()}
           >
             {store.isRefreshing ? "正在重试..." : "重试"}
@@ -164,12 +196,13 @@
               <button
                 type="button"
                 class="model-option"
-                class:selected={model.id === store.draftModelId}
-                aria-pressed={model.id === store.draftModelId}
-                onclick={() => selectModel(model.id)}
+                disabled={disabled || isSelecting}
+                class:selected={model.id === effectiveModelId}
+                aria-pressed={model.id === effectiveModelId}
+                onclick={() => void selectModel(model.id)}
               >
                 <span class="option-label">{model.label}</span>
-                {#if model.id === store.draftModelId}
+                {#if model.id === effectiveModelId}
                   <CheckIcon size={16} />
                 {/if}
               </button>
@@ -178,6 +211,9 @@
         </ul>
       {/if}
 
+      {#if selectionError}
+        <p class="error-text" role="alert">{selectionError}</p>
+      {/if}
       {#if refreshNotice}
         <p class="popover-note" role="status">{refreshNotice}</p>
       {/if}
@@ -196,7 +232,7 @@
   .model-trigger {
     display: inline-flex;
     max-width: 180px;
-    min-height: 36px;
+    min-height: var(--touch-target);
     align-items: center;
     gap: var(--space-1);
     padding: 0 var(--space-2);

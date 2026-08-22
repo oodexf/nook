@@ -76,6 +76,7 @@ pub enum GenerationSetup {
 pub enum RepositoryErrorKind {
     NotFound,
     Conflict,
+    GenerationInProgress,
     Unavailable,
     CorruptData,
 }
@@ -158,6 +159,13 @@ pub trait ConversationRepository: Send + Sync {
         &self,
         id: String,
         title: String,
+        updated_at: i64,
+    ) -> impl Future<Output = Result<Conversation, RepositoryError>> + Send;
+
+    fn update_model(
+        &self,
+        id: String,
+        model: String,
         updated_at: i64,
     ) -> impl Future<Output = Result<Conversation, RepositoryError>> + Send;
 

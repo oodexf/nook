@@ -219,7 +219,7 @@ mod tests {
             ("APP_ORIGIN", "https://chat.example.com".to_owned()),
             ("AI_BASE_URL", "https://api.example.com/v1".to_owned()),
             ("AI_API_KEY", "test-provider-key".to_owned()),
-            ("AI_DEFAULT_MODEL", "test-model".to_owned()),
+            ("AI_DEFAULT_MODEL", "gpt-5.6-luna".to_owned()),
         ])
     }
 

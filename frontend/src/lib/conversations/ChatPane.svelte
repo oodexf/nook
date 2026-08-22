@@ -2,6 +2,11 @@
   import { tick, untrack } from "svelte";
 
   import { errorMessageOf } from "../api/client";
+  import ArtifactWorkspace from "../artifacts/ArtifactWorkspace.svelte";
+  import {
+    extractArtifacts,
+    type ChatArtifact
+  } from "../artifacts/artifacts";
   import ArrowDownIcon from "../components/ArrowDownIcon.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import MenuIcon from "../components/MenuIcon.svelte";
@@ -56,9 +61,29 @@
   }: Props = $props();
 
   const MAX_TITLE_LENGTH = 200;
+  const ARTIFACT_MIN_RATIO = 1 / 3;
+  const ARTIFACT_MAX_RATIO = 1 / 2;
 
   let contentRegion = $state<HTMLElement | null>(null);
+  let workspaceRegion = $state<HTMLElement | null>(null);
+  let artifactTrigger = $state<HTMLButtonElement | null>(null);
+  let activeArtifactId = $state<string | null>(null);
+  let artifactRatio = $state<number | null>(null);
   let renameButton = $state<HTMLButtonElement | null>(null);
+
+  const artifacts = $derived.by(() =>
+    (store.current?.messages ?? []).flatMap((message) =>
+      message.role === "assistant" && message.status !== "streaming"
+        ? extractArtifacts(message.content, message.id, true)
+        : []
+    )
+  );
+  const activeArtifact = $derived(
+    activeArtifactId === null
+      ? null
+      : (artifacts.find((artifact) => artifact.id === activeArtifactId) ?? null)
+  );
+  const resolvedArtifactRatio = $derived(artifactRatio ?? 0.42);
   let renameInput = $state<HTMLInputElement | null>(null);
 
   let isRenaming = $state(false);
@@ -71,6 +96,8 @@
   let isDeleteBusy = $state(false);
 
   let composerValue = $state("");
+  let modelRecoveryKey = $state<string | null>(null);
+  let modelRecoveryError = $state<string | null>(null);
 
   // --- Unsent draft persistence (F-08) -------------------------------
   // Keyed by the visible view: the server conversation ID, or "new" for
@@ -140,7 +167,62 @@
     void store.selectedId;
     followOutput = true;
     newOutputBelow = false;
+    activeArtifactId = null;
+    artifactTrigger = null;
   });
+
+  $effect(() => {
+    if (activeArtifactId !== null && activeArtifact === null) {
+      activeArtifactId = null;
+    }
+  });
+
+  function openArtifact(
+    artifact: ChatArtifact,
+    trigger: HTMLButtonElement
+  ): void {
+    artifactTrigger = trigger;
+    activeArtifactId = artifact.id;
+  }
+
+  function closeArtifact(): void {
+    activeArtifactId = null;
+    void tick().then(() => artifactTrigger?.focus({ preventScroll: true }));
+  }
+
+  function clampArtifactRatio(value: number): number {
+    return Math.min(ARTIFACT_MAX_RATIO, Math.max(ARTIFACT_MIN_RATIO, value));
+  }
+
+  function handleArtifactResize(event: PointerEvent): void {
+    const region = workspaceRegion;
+    if (region === null || event.button !== 0) return;
+    const handle = event.currentTarget;
+    if (!(handle instanceof HTMLElement)) return;
+    handle.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent) => {
+      const bounds = region.getBoundingClientRect();
+      if (bounds.width <= 0) return;
+      artifactRatio = clampArtifactRatio(
+        (bounds.right - moveEvent.clientX) / bounds.width
+      );
+    };
+    const finish = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  }
+
+  function handleArtifactResizeKey(event: KeyboardEvent): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? 1 : -1;
+    artifactRatio = clampArtifactRatio(resolvedArtifactRatio + direction * 0.02);
+  }
 
   // React to content growth: follow when pinned to the bottom, otherwise
   // raise the new-output indicator for incoming stream content.
@@ -207,11 +289,11 @@
       : []
   );
 
-  // The composer model selector appears only in the draft view: once a
-  // conversation exists (or its first stream is in flight) the model is
-  // locked and shown in the header instead.
-  const showDraftModelSelector = $derived(
-    store.detailStatus === "idle" && !streamVisible
+  // The model selector stays available in drafts and existing conversations.
+  // Existing selections are server-authoritative and disabled during streams.
+  const showModelSelector = $derived(
+    (store.detailStatus === "idle" && !streamVisible) ||
+      (store.detailStatus === "ready" && store.current !== null)
   );
 
   // --- Locked-model label (08-15 header refresh) ----------------------
@@ -234,6 +316,52 @@
       !modelStore.isModelAvailable(store.current.conversation.model)
   );
 
+  const selectedConversationId = $derived(store.current?.conversation.id ?? null);
+  const isUpdatingSelectedModel = $derived(
+    store.isUpdatingModel(selectedConversationId)
+  );
+
+  $effect(() => {
+    const detail = store.current;
+    if (
+      store.detailStatus !== "ready" ||
+      detail === null ||
+      modelStore.status !== "ready" ||
+      modelStore.isModelAvailable(detail.conversation.model)
+    ) {
+      modelRecoveryKey = null;
+      modelRecoveryError = null;
+      return;
+    }
+    const fallback = [...detail.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          message.model !== null &&
+          modelStore.isModelAvailable(message.model)
+      )?.model;
+    if (fallback === undefined || fallback === null) return;
+    const key = `${detail.conversation.id}:${detail.conversation.model}:${fallback}`;
+    if (
+      modelRecoveryKey === key ||
+      generation.isBusy ||
+      store.isUpdatingModel(detail.conversation.id)
+    ) return;
+    modelRecoveryKey = key;
+    modelRecoveryError = null;
+    const conversationId = detail.conversation.id;
+    void store
+      .updateModel(conversationId, fallback, csrfToken)
+      .catch((error: unknown) => {
+        // A response owned by a conversation left during the request must not
+        // surface an error in the newly opened view.
+        if (store.selectedId === conversationId) {
+          modelRecoveryError = errorMessageOf(error);
+        }
+      });
+  });
+
   // canSend gating (derived, not stored): the pane must be in a sendable
   // view, a draft must have a selected catalog model, and a locked
   // conversation whose model left the catalog cannot send.
@@ -241,7 +369,8 @@
     (store.detailStatus !== "ready" && store.detailStatus !== "idle") ||
       (store.detailStatus === "idle" &&
         (modelStore.status !== "ready" || modelStore.draftModelId === null)) ||
-      lockedModelRemoved
+      lockedModelRemoved ||
+      isUpdatingSelectedModel
   );
 
   async function handleSend(content: string) {
@@ -265,6 +394,16 @@
     ) {
       composerValue = content;
     }
+  }
+
+  async function handleModelSelect(model: string): Promise<void> {
+    const current = store.current;
+    if (
+      current === null ||
+      generation.isBusy ||
+      store.isUpdatingModel(current.conversation.id)
+    ) return;
+    await store.updateModel(current.conversation.id, model, csrfToken);
   }
 
   function handleStop() {
@@ -354,7 +493,14 @@
   }
 </script>
 
-<section class="pane" aria-label="对话内容">
+<section
+  class="pane"
+  class:artifact-open={activeArtifact !== null}
+  aria-label="对话内容"
+  bind:this={workspaceRegion}
+  style:--artifact-ratio={`${resolvedArtifactRatio * 100}%`}
+>
+  <div class="chat-column">
   <header class="pane-header">
     {#if showSidebarRestore && onRestoreSidebar !== null}
       <button
@@ -434,10 +580,9 @@
   </header>
 
   {#if store.detailStatus === "ready" && store.current && !modelStore.isModelAvailable(store.current.conversation.model) && modelStore.status === "ready"}
-    <!-- The locked model is gone from the catalog: history stays readable -->
-    <!-- but new messages are blocked server-side (409 model_unavailable). -->
+    <!-- The current model is gone: history stays readable while recovery runs. -->
     <p class="model-unavailable" role="status">
-      此对话锁定的模型 <code>{store.current.conversation.model}</code> 已从提供商目录中移除；历史消息仍可查看，但无法发送新消息。
+      当前模型 <code>{store.current.conversation.model}</code> 已从提供商目录中移除；正在尝试恢复最近仍可用的历史模型，也可手动选择。
     </p>
   {/if}
 
@@ -483,6 +628,7 @@
               {excludedMessageIds}
               onRetry={handleRetry}
               retryDisabled={generation.isBusy}
+              onOpenArtifact={openArtifact}
             />
           {/if}
         {/if}
@@ -518,6 +664,11 @@
   >
   </div>
 
+  {#if modelRecoveryError}
+    <p class="model-recovery-error" role="alert">
+      无法恢复可用模型：{modelRecoveryError}
+    </p>
+  {/if}
   {#if store.detailStatus !== "error"}
     <Composer
       bind:value={composerValue}
@@ -528,11 +679,44 @@
       onStop={handleStop}
     >
       {#snippet beforeSend()}
-        {#if showDraftModelSelector}
-          <ComposerModelSelector store={modelStore} {csrfToken} />
+        {#if showModelSelector}
+          {#key selectedConversationId ?? "draft"}
+            <ComposerModelSelector
+              store={modelStore}
+              {csrfToken}
+              selectedModelId={store.current?.conversation.model ?? null}
+              selectionScope={selectedConversationId}
+              disabled={generation.isBusy || isUpdatingSelectedModel}
+              onSelect={store.current === null ? undefined : handleModelSelect}
+            />
+          {/key}
         {/if}
       {/snippet}
     </Composer>
+  {/if}
+  </div>
+
+  {#if activeArtifact !== null}
+    <button
+      type="button"
+      class="artifact-resizer"
+      aria-label="调整 Artifact 面板宽度"
+      aria-valuemin={Math.round(ARTIFACT_MIN_RATIO * 100)}
+      aria-valuemax={Math.round(ARTIFACT_MAX_RATIO * 100)}
+      aria-valuenow={Math.round(resolvedArtifactRatio * 100)}
+      role="slider"
+      onpointerdown={handleArtifactResize}
+      onkeydown={handleArtifactResizeKey}
+      ondblclick={() => (artifactRatio = null)}
+    ></button>
+    <div class="artifact-column">
+      <ArtifactWorkspace
+        artifact={activeArtifact}
+        {artifacts}
+        onSelect={(artifactId) => (activeArtifactId = artifactId)}
+        onClose={closeArtifact}
+      />
+    </div>
   {/if}
 </section>
 
@@ -553,11 +737,43 @@
 
 <style>
   .pane {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--bg);
+  }
+
+  .pane.artifact-open {
+    grid-template-columns: minmax(0, calc(100% - var(--artifact-ratio))) 8px minmax(0, var(--artifact-ratio));
+  }
+
+  .chat-column,
+  .artifact-column {
     display: flex;
     min-width: 0;
     min-height: 0;
     flex-direction: column;
-    background: var(--bg);
+  }
+
+  .artifact-resizer {
+    z-index: 5;
+    width: 8px;
+    min-width: 8px;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    background: var(--surface-muted);
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .artifact-resizer:hover,
+  .artifact-resizer:focus-visible {
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-muted));
+    outline: none;
   }
 
   /* Same 48px bar and compact control scale as the sidebar header, so the
@@ -825,6 +1041,25 @@
   }
 
   @media (max-width: 760px) {
+    .pane.artifact-open {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pane.artifact-open .chat-column {
+      visibility: hidden;
+    }
+
+    .artifact-column {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      background: var(--surface);
+    }
+
+    .artifact-resizer {
+      display: none;
+    }
+
     .menu-button {
       display: inline-flex;
     }

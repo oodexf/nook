@@ -2,7 +2,8 @@ use chat_core::{
     conversation::{Message, MessageRole, MessageStatus},
     generation::{Generation, GenerationStatus},
     repository::{
-        ConversationCursor, ConversationRepository, NewConversation, RepositoryErrorKind,
+        ConversationCursor, ConversationRepository, GenerationFinalization, GenerationRepository,
+        NewConversation, NewMessageGeneration, RepositoryErrorKind, RetryGeneration,
     },
 };
 use rusqlite::{Connection, params};
@@ -48,7 +49,7 @@ fn assistant_placeholder(id: &str, conversation_id: &str) -> Message {
         content: String::new(),
         reasoning: None,
         status: MessageStatus::Streaming,
-        model: Some("test-model".to_owned()),
+        model: Some("gpt-5.6-luna".to_owned()),
         error_code: None,
         created_at: 100,
         finished_at: None,
@@ -61,7 +62,7 @@ fn streaming_generation(id: &str, conversation_id: &str, assistant_message_id: &
         conversation_id: conversation_id.to_owned(),
         assistant_message_id: assistant_message_id.to_owned(),
         provider: "provider".to_owned(),
-        model: "test-model".to_owned(),
+        model: "gpt-5.6-luna".to_owned(),
         status: GenerationStatus::Streaming,
         input_tokens: None,
         output_tokens: None,
@@ -74,11 +75,166 @@ fn raw(directory: &TempDir) -> Connection {
     connection::open(&directory.path().join("chat.db")).expect("database should open")
 }
 
+fn seed_v2_database(path: &std::path::Path) {
+    let mut connection = connection::open(path).expect("v2 database should open");
+    let transaction = connection
+        .transaction()
+        .expect("v2 migration transaction should start");
+    transaction
+        .execute_batch(include_str!("../migrations/0001_initial.sql"))
+        .expect("v1 schema should apply");
+    transaction
+        .execute_batch(include_str!("../migrations/0002_message_reasoning.sql"))
+        .expect("v2 schema should apply");
+    transaction
+        .execute_batch(
+            "CREATE TABLE schema_migrations (
+                 version INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 applied_at INTEGER NOT NULL
+             ) STRICT;
+             INSERT INTO schema_migrations(version, name, applied_at)
+             VALUES (1, 'initial', 1), (2, 'message_reasoning', 2);
+             INSERT INTO conversations(id, title, model, created_at, updated_at)
+             VALUES ('c-v2', 'Legacy', 'model-a', 10, 10);
+             INSERT INTO messages
+             (id, conversation_id, client_message_id, role, content, status, model,
+              error_code, created_at, finished_at, reasoning)
+             VALUES
+             ('u-v2', 'c-v2', 'client-v2', 'user', 'legacy prompt', 'completed',
+              NULL, NULL, 11, 11, NULL),
+             ('a-v2', 'c-v2', NULL, 'assistant', 'legacy answer', 'completed',
+              'model-a', NULL, 12, 12, 'legacy reasoning');
+             INSERT INTO generations
+             (id, conversation_id, assistant_message_id, provider, model, status,
+              input_tokens, output_tokens, started_at, finished_at)
+             VALUES ('g-v2', 'c-v2', 'a-v2', 'provider', 'model-a', 'completed',
+                     4, 5, 12, 12);",
+        )
+        .expect("v2 fixture rows should insert");
+    transaction.commit().expect("v2 fixture should commit");
+}
+
+fn migrated_model_b_message_setup() -> NewMessageGeneration {
+    NewMessageGeneration {
+        conversation: None,
+        conversation_id: "c-v2".to_owned(),
+        user_message: Message {
+            created_at: 21,
+            finished_at: Some(21),
+            ..user_message("u-v3", "c-v2", "client-v3", "new prompt")
+        },
+        assistant_message: Message {
+            id: "a-v3".to_owned(),
+            conversation_id: "c-v2".to_owned(),
+            client_message_id: None,
+            role: MessageRole::Assistant,
+            content: String::new(),
+            reasoning: None,
+            status: MessageStatus::Streaming,
+            model: Some("model-b".to_owned()),
+            error_code: None,
+            created_at: 22,
+            finished_at: None,
+        },
+        generation: Generation {
+            id: "g-v3".to_owned(),
+            conversation_id: "c-v2".to_owned(),
+            assistant_message_id: "a-v3".to_owned(),
+            provider: "provider".to_owned(),
+            model: "model-b".to_owned(),
+            status: GenerationStatus::Streaming,
+            input_tokens: None,
+            output_tokens: None,
+            started_at: 22,
+            finished_at: None,
+        },
+    }
+}
+
+fn migrated_model_b_retry_setup() -> RetryGeneration {
+    RetryGeneration {
+        conversation_id: "c-v2".to_owned(),
+        source_assistant_message_id: "a-v3".to_owned(),
+        assistant_message: Message {
+            id: "a-v3-retry".to_owned(),
+            conversation_id: "c-v2".to_owned(),
+            client_message_id: None,
+            role: MessageRole::Assistant,
+            content: String::new(),
+            reasoning: None,
+            status: MessageStatus::Streaming,
+            model: Some("model-b".to_owned()),
+            error_code: None,
+            created_at: 24,
+            finished_at: None,
+        },
+        generation: Generation {
+            id: "g-v3-retry".to_owned(),
+            conversation_id: "c-v2".to_owned(),
+            assistant_message_id: "a-v3-retry".to_owned(),
+            provider: "provider".to_owned(),
+            model: "model-b".to_owned(),
+            status: GenerationStatus::Streaming,
+            input_tokens: None,
+            output_tokens: None,
+            started_at: 24,
+            finished_at: None,
+        },
+    }
+}
+
+async fn exercise_migrated_current_model(storage: &SqliteStorage) {
+    storage
+        .create_message_generation(migrated_model_b_message_setup())
+        .await
+        .expect("migrated conversation should accept a send on its current model");
+    assert_eq!(
+        storage
+            .get_generation("g-v3".to_owned())
+            .await
+            .expect("new generation should be readable")
+            .generation
+            .model,
+        "model-b"
+    );
+    assert!(
+        storage
+            .finalize_generation(GenerationFinalization {
+                generation_id: "g-v3".to_owned(),
+                assistant_message_id: "a-v3".to_owned(),
+                generation_status: GenerationStatus::Completed,
+                message_status: MessageStatus::Completed,
+                content: "new answer".to_owned(),
+                reasoning: None,
+                error_code: None,
+                input_tokens: Some(6),
+                output_tokens: Some(7),
+                finished_at: 23,
+            })
+            .await
+            .expect("new generation should finalize")
+    );
+    storage
+        .create_retry_generation(migrated_model_b_retry_setup())
+        .await
+        .expect("migrated conversation should retry on its current model");
+    assert_eq!(
+        storage
+            .get_generation("g-v3-retry".to_owned())
+            .await
+            .expect("retry generation should be readable")
+            .generation
+            .model,
+        "model-b"
+    );
+}
+
 fn conversation(id: &str, updated_at: i64) -> NewConversation {
     NewConversation {
         id: id.to_owned(),
         title: format!("Conversation {id}"),
-        model: "test-model".to_owned(),
+        model: "gpt-5.6-luna".to_owned(),
         created_at: updated_at,
     }
 }
@@ -96,7 +252,67 @@ async fn fresh_and_repeated_migrations_are_safe() {
             row.get(0)
         })
         .expect("migration count should be available");
-    assert_eq!(migration_count, 2);
+    assert_eq!(migration_count, 3);
+}
+
+#[tokio::test]
+async fn v2_to_v3_migration_preserves_models_messages_and_reasoning() {
+    let directory = TempDir::new().expect("temporary directory should be created");
+    let path = directory.path().join("chat.db");
+    seed_v2_database(&path);
+
+    let storage = SqliteStorage::initialize(&path)
+        .await
+        .expect("v2 database should migrate to v3");
+    let detail = storage
+        .get("c-v2".to_owned())
+        .await
+        .expect("legacy conversation should remain readable");
+    assert_eq!(detail.conversation.model, "model-a");
+    assert_eq!(detail.messages.len(), 2);
+    assert_eq!(detail.messages[1].model.as_deref(), Some("model-a"));
+    assert_eq!(
+        detail.messages[1].reasoning.as_deref(),
+        Some("legacy reasoning")
+    );
+    let legacy_generation = storage
+        .get_generation("g-v2".to_owned())
+        .await
+        .expect("legacy generation should remain readable");
+    assert_eq!(legacy_generation.generation.model, "model-a");
+    assert_eq!(
+        legacy_generation.generation.status,
+        GenerationStatus::Completed
+    );
+
+    let updated = storage
+        .update_model("c-v2".to_owned(), "model-b".to_owned(), 20)
+        .await
+        .expect("v3 should remove the legacy model lock trigger");
+    assert_eq!(updated.model, "model-b");
+    let persisted = storage
+        .get("c-v2".to_owned())
+        .await
+        .expect("migrated conversation should remain readable");
+    assert_eq!(persisted.messages[1].model.as_deref(), Some("model-a"));
+
+    exercise_migrated_current_model(&storage).await;
+
+    let legacy_generation_after_writes = storage
+        .get_generation("g-v2".to_owned())
+        .await
+        .expect("legacy generation should remain readable after v3 writes");
+    assert_eq!(legacy_generation_after_writes.generation.model, "model-a");
+
+    let connection = connection::open(&path).expect("migrated database should open");
+    let versions: Vec<i64> = connection
+        .prepare("SELECT version FROM schema_migrations ORDER BY version")
+        .expect("migration query should prepare")
+        .query_map([], |row| row.get(0))
+        .expect("migration query should run")
+        .collect::<Result<_, _>>()
+        .expect("migration versions should decode");
+    assert_eq!(versions, [1, 2, 3]);
 }
 
 #[tokio::test]
@@ -181,7 +397,7 @@ async fn deleting_conversation_cascades_messages_and_generations() {
         .execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, status, model, created_at)
-             VALUES ('a1', 'c1', 'assistant', '', 'streaming', 'test-model', 101)",
+             VALUES ('a1', 'c1', 'assistant', '', 'streaming', 'gpt-5.6-luna', 101)",
             [],
         )
         .expect("assistant should insert");
@@ -189,7 +405,7 @@ async fn deleting_conversation_cascades_messages_and_generations() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g1', 'c1', 'a1', 'openai-compatible', 'test-model', 'streaming', 101)",
+             VALUES ('g1', 'c1', 'a1', 'openai-compatible', 'gpt-5.6-luna', 'streaming', 101)",
             [],
         )
         .expect("generation should insert");
@@ -259,6 +475,56 @@ async fn cursor_pagination_is_stable_with_timestamp_ties() {
         .await
         .expect("cursor should load");
     assert_eq!(after_tie.conversations[0].id, "b");
+}
+
+#[tokio::test]
+async fn model_update_preserves_history_and_rejects_active_generation() {
+    let (_directory, storage) = database().await;
+    storage
+        .create(conversation("c1", 100))
+        .await
+        .expect("conversation should create");
+    let changed = storage
+        .update_model("c1".to_owned(), "model-b".to_owned(), 110)
+        .await
+        .expect("idle conversation model should update");
+    assert_eq!(changed.model, "model-b");
+
+    let setup = NewMessageGeneration {
+        conversation: None,
+        conversation_id: "c1".to_owned(),
+        user_message: user_message("u1", "c1", "client-switch", "prompt"),
+        assistant_message: Message {
+            model: Some("model-b".to_owned()),
+            ..assistant_placeholder("a1", "c1")
+        },
+        generation: Generation {
+            model: "model-b".to_owned(),
+            ..streaming_generation("g1", "c1", "a1")
+        },
+    };
+    storage
+        .create_message_generation(setup)
+        .await
+        .expect("new generation should snapshot current model");
+    let error = storage
+        .update_model("c1".to_owned(), "model-c".to_owned(), 120)
+        .await
+        .expect_err("active generation should block model update");
+    assert_eq!(error.kind(), RepositoryErrorKind::GenerationInProgress);
+    let detail = storage
+        .get("c1".to_owned())
+        .await
+        .expect("conversation should load");
+    assert_eq!(detail.conversation.model, "model-b");
+    assert_eq!(
+        detail
+            .messages
+            .iter()
+            .find(|message| message.role == MessageRole::Assistant)
+            .and_then(|message| message.model.as_deref()),
+        Some("model-b")
+    );
 }
 
 #[tokio::test]
@@ -456,7 +722,7 @@ async fn active_generation_conflict_rolls_back_assistant_placeholder() {
         content: String::new(),
         reasoning: None,
         status: MessageStatus::Streaming,
-        model: Some("test-model".to_owned()),
+        model: Some("gpt-5.6-luna".to_owned()),
         error_code: None,
         created_at,
         finished_at: None,
@@ -466,7 +732,7 @@ async fn active_generation_conflict_rolls_back_assistant_placeholder() {
         conversation_id: "c1".to_owned(),
         assistant_message_id: assistant_message_id.to_owned(),
         provider: "provider".to_owned(),
-        model: "test-model".to_owned(),
+        model: "gpt-5.6-luna".to_owned(),
         status: GenerationStatus::Streaming,
         input_tokens: None,
         output_tokens: None,
@@ -507,7 +773,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
             .execute(
                 "INSERT INTO messages
                  (id, conversation_id, role, content, status, model, created_at)
-                 VALUES (?1, 'c1', 'assistant', '', 'streaming', 'test-model', 101)",
+                 VALUES (?1, 'c1', 'assistant', '', 'streaming', 'gpt-5.6-luna', 101)",
                 [id],
             )
             .expect("assistant should insert");
@@ -516,7 +782,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g1', 'c1', 'a1', 'provider', 'test-model', 'pending', 101)",
+             VALUES ('g1', 'c1', 'a1', 'provider', 'gpt-5.6-luna', 'pending', 101)",
             [],
         )
         .expect("first active generation should insert");
@@ -525,7 +791,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g2', 'c1', 'a2', 'provider', 'test-model', 'streaming', 102)",
+                 VALUES ('g2', 'c1', 'a2', 'provider', 'gpt-5.6-luna', 'streaming', 102)",
                 [],
             )
             .is_err()
@@ -540,7 +806,7 @@ async fn only_one_active_generation_is_allowed_per_conversation() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g3', 'c1', 'a3', 'provider', 'test-model', 'streaming', 104)",
+             VALUES ('g3', 'c1', 'a3', 'provider', 'gpt-5.6-luna', 'streaming', 104)",
             [],
         )
         .expect("new generation should insert after terminal state");
@@ -558,7 +824,7 @@ async fn startup_recovery_interrupts_unfinished_rows_and_preserves_content() {
         .execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, status, model, created_at)
-             VALUES ('a1', 'c1', 'assistant', 'partial private output', 'streaming', 'test-model', 101)",
+             VALUES ('a1', 'c1', 'assistant', 'partial private output', 'streaming', 'gpt-5.6-luna', 101)",
             [],
         )
         .expect("assistant should insert");
@@ -566,7 +832,7 @@ async fn startup_recovery_interrupts_unfinished_rows_and_preserves_content() {
         .execute(
             "INSERT INTO generations
              (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-             VALUES ('g1', 'c1', 'a1', 'provider', 'test-model', 'cancelling', 101)",
+             VALUES ('g1', 'c1', 'a1', 'provider', 'gpt-5.6-luna', 'cancelling', 101)",
             [],
         )
         .expect("generation should insert");
@@ -597,7 +863,7 @@ async fn startup_recovery_interrupts_unfinished_rows_and_preserves_content() {
 }
 
 #[tokio::test]
-async fn schema_enforces_assistant_generation_link_and_locked_model() {
+async fn schema_enforces_assistant_generation_link_and_allows_model_changes() {
     let (directory, storage) = database().await;
     storage
         .create(conversation("c1", 100))
@@ -620,7 +886,7 @@ async fn schema_enforces_assistant_generation_link_and_locked_model() {
         .execute(
             "INSERT INTO messages
              (id, conversation_id, role, content, status, model, created_at)
-             VALUES ('a2', 'c2', 'assistant', '', 'streaming', 'test-model', 102)",
+             VALUES ('a2', 'c2', 'assistant', '', 'streaming', 'gpt-5.6-luna', 102)",
             [],
         )
         .expect("assistant should insert");
@@ -633,7 +899,7 @@ async fn schema_enforces_assistant_generation_link_and_locked_model() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g-missing', 'c1', 'missing', 'provider', 'test-model', 'pending', 103)",
+                 VALUES ('g-missing', 'c1', 'missing', 'provider', 'gpt-5.6-luna', 'pending', 103)",
                 [],
             )
             .is_err(),
@@ -647,7 +913,7 @@ async fn schema_enforces_assistant_generation_link_and_locked_model() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g-user', 'c1', 'u1', 'provider', 'test-model', 'pending', 103)",
+                 VALUES ('g-user', 'c1', 'u1', 'provider', 'gpt-5.6-luna', 'pending', 103)",
                 [],
             )
             .is_err()
@@ -657,19 +923,17 @@ async fn schema_enforces_assistant_generation_link_and_locked_model() {
             .execute(
                 "INSERT INTO generations
                  (id, conversation_id, assistant_message_id, provider, model, status, started_at)
-                 VALUES ('g-other', 'c1', 'a2', 'provider', 'test-model', 'pending', 103)",
+                 VALUES ('g-other', 'c1', 'a2', 'provider', 'gpt-5.6-luna', 'pending', 103)",
                 [],
             )
             .is_err()
     );
-    assert!(
-        connection
-            .execute(
-                "UPDATE conversations SET model = 'changed' WHERE id = 'c1'",
-                []
-            )
-            .is_err()
-    );
+    connection
+        .execute(
+            "UPDATE conversations SET model = 'changed' WHERE id = 'c1'",
+            [],
+        )
+        .expect("mutable current model should update after messages exist");
 }
 
 #[tokio::test]
